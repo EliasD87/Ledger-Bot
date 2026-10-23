@@ -1,0 +1,30 @@
+{
+  "name": "ledger-bot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Ledger: the Cybereator scorekeeper Discord bot",
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "backtest": "tsx scripts/backtest-odds.ts",
+    "check": "tsx scripts/check-setup.ts",
+    "chat-eval": "tsx scripts/chat-eval.ts"
+  },
+  "dependencies": {
+    "discord.js": "^14.27.0",
+    "openai": "^7.43.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
+  }
+}
