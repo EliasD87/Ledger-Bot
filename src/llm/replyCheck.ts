@@ -1,12 +1,13 @@
 import type { ChatMessage, ChatModel } from './deepseek.js';
 import { type ToolLoopOptions, chatWithTools } from './toolLoop.js';
 
-/**
- * Figures that look like market data: anything with a decimal point, 100 or more, or money with a
- * unit. Small whole numbers (counts, days, hours, ratings) and times, ids, years and links are left alone.
- */
+/** Numbers in text: "81,744", "−$635.5M", "2.4k", "0.54" (in "0.54%"). Times, ids and links are left out. */
 const FIGURE = /(?<![\w#:.\/])[+−-]?\$?\d(?:[\d,]*\d)?(?:\.\d+)?(?:[kK](?![a-zA-Z]))?(?![\d:])/g;
 const URL = /https?:\/\/\S+/g;
+/** Just before a figure: a ticker or a price word, which makes it a market number. */
+const PRICE_CONTEXT = /(?:\b[A-Z]{2,6}\b|\b(?:price|spot|at|trading|trades|range|high|low|now|from|to|closed|reached|hit|touched|was|is)\b)[\s:(]*$/;
+/** Just after a figure: a unit that makes it a fact about a chain or a company, not a market number. */
+const KNOWLEDGE_UNIT = /^\s*(?:blocks?|coins?|tokens?|million|billion|years?|months?|days?|hours?|minutes?|seconds?|holders?|validators?|nodes?|transactions?|txs?|tps|members?|people|users?|nfts?|items?|employees?|shares? outstanding)\b/i;
 
 /** Betting words, and a rating followed by signed points ("rated 13% … +87"): a betting slip either way. */
 const BETTING = /\b(payouts?|odds|bets?|betting|wager(?:s|ed)?|stakes?|staked|jackpot|long ?shots?)\b/i;
@@ -18,23 +19,40 @@ const CANCEL_CLAIM = /\b(cancell?ed|dropped|removed|deleted|killed|stopped|off t
 const SET_ASK = /\b(alert|ping|watch|notify|tell me|dm me|let me know|set|new one)\b/i;
 const SET_CLAIM = /\b(?:on watch|now watching|watching (?:it|that|for)|(?:alert|watch)(?: #?\d+)? (?:is )?set|armed)\b|\bset[:,]/i;
 
-function figures(text: string): { raw: string; value: number }[] {
-  const out: { raw: string; value: number }[] = [];
-  for (const match of text.replace(URL, ' ').matchAll(FIGURE)) {
+interface Figure {
+  raw: string;
+  value: number;
+  before: string;
+  after: string;
+}
+
+function figures(text: string): Figure[] {
+  const out: Figure[] = [];
+  const clean = text.replace(URL, ' ');
+  for (const match of clean.matchAll(FIGURE)) {
     const raw = match[0];
     const thousands = /[kK]$/.test(raw);
     const digits = raw.replace(/[^\d.]/g, '');
     const value = Number(digits) * (thousands ? 1000 : 1);
     if (!Number.isFinite(value)) continue;
-    out.push({ raw, value });
+    const at = match.index ?? 0;
+    out.push({ raw, value, before: clean.slice(Math.max(0, at - 24), at), after: clean.slice(at + raw.length, at + raw.length + 24) });
   }
   return out;
 }
 
-function looksLikeData(f: { raw: string; value: number }): boolean {
+/**
+ * Market numbers, the kind that go stale: money, percentages, and prices next to a ticker or a price
+ * word. Knowledge ("every 210,000 blocks", "21 million coins"), counts, dates and years pass.
+ */
+function looksLikeData(f: Figure): boolean {
   const plain = f.raw.replace(/^[+−-]/, '');
   if (/^\d{4}$/.test(plain) && f.value >= 2020 && f.value <= 2035) return false; // a year
-  return plain.includes('.') || f.value >= 100;
+  if (KNOWLEDGE_UNIT.test(f.after)) return false;
+  if (plain.startsWith('$') || /^\s*[MBT]\b/.test(f.after)) return true;
+  // "0.54%" is a market move; a whole "13%" or "5%" is a rating or a threshold.
+  if (/^\s*%/.test(f.after)) return plain.includes('.');
+  return (plain.includes('.') || f.value >= 100) && PRICE_CONTEXT.test(f.before);
 }
 
 /**

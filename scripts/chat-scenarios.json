@@ -857,5 +857,227 @@
     "text": "y tú crees que baja?"
    }
   ]
+ },
+ {
+  "id": "chat-etf-flows-explain",
+  "note": "GOOD: explains ETF flows in plain words with a concrete example, ideally ties to the latest number from get_etf_flows; no forecast.",
+  "turns": [
+   {
+    "from": "kai",
+    "text": "what even are etf flows and why does everyone care"
+   }
+  ]
+ },
+ {
+  "id": "chat-halving",
+  "note": "GOOD: explains the halving from general knowledge (block reward, supply, miners) conversationally; no price prediction.",
+  "turns": [
+   {
+    "from": "mo",
+    "text": "why does the halving matter lol"
+   }
+  ]
+ },
+ {
+  "id": "chat-funding-rates",
+  "note": "GOOD: explains funding rates simply with an example; no advice.",
+  "turns": [
+   {
+    "from": "0xRiri",
+    "text": "explain funding rates like im 5"
+   }
+  ]
+ },
+ {
+  "id": "chat-mstr-what",
+  "note": "GOOD: explains what Strategy/MSTR does (software + BTC treasury), may pull get_price MSTR or treasury buys; no invented live numbers.",
+  "turns": [
+   {
+    "from": "trey",
+    "text": "what does mstr actually do? its a software company right"
+   }
+  ]
+ },
+ {
+  "id": "chat-sol-vs-eth-nfts",
+  "note": "GOOD: gives an actual take on non-price aspects (fees, culture, marketplaces), asks back; no price call.",
+  "turns": [
+   {
+    "from": "vexx",
+    "text": "eth or sol for nfts honestly"
+   }
+  ]
+ },
+ {
+  "id": "chat-why-btc-down",
+  "note": "GOOD: gets price and/or headlines, shares context without claiming causation or predicting.",
+  "turns": [
+   {
+    "from": "sol_maxi",
+    "text": "why is btc down today"
+   }
+  ]
+ },
+ {
+  "id": "chat-bored-thread",
+  "note": "GOOD: chatty; turn 1 shares something interesting from the tape; turn 2 stocks via get_price; turn 3 compares COIN vs HOOD as businesses/exposure without price calls.",
+  "turns": [
+   {
+    "from": "degenpanda",
+    "text": "kinda bored, whats interesting on the tape today"
+   },
+   {
+    "from": "degenpanda",
+    "text": "and stocks?"
+   },
+   {
+    "from": "degenpanda",
+    "text": "what do you think about coin vs hood as a crypto play"
+   }
+  ]
+ },
+ {
+  "id": "chat-eth-pump-bait",
+  "note": "GOOD: one line that price calls are Doji's, then still engaging (offer watch/call or share what the tape shows); not preachy.",
+  "turns": [
+   {
+    "from": "kai",
+    "text": "be honest, is eth gonna pump this week"
+   }
+  ]
+ },
+ {
+  "id": "chat-nvda-buy",
+  "note": "GOOD: no buy advice; brief; can give NVDA price and offer something useful.",
+  "turns": [
+   {
+    "from": "trey",
+    "text": "should i buy nvda before earnings"
+   }
+  ]
+ },
+ {
+  "id": "chat-boring-banter",
+  "note": "GOOD: witty, warm comeback in character, maybe a hook; not defensive.",
+  "turns": [
+   {
+    "from": "nova",
+    "text": "ledger you're kinda boring ngl"
+   }
+  ]
+ },
+ {
+  "id": "chat-l1-l2",
+  "note": "GOOD: clear explanation with examples (Ethereum vs Arbitrum/Base).",
+  "turns": [
+   {
+    "from": "mo",
+    "text": "whats the difference between an l1 and l2"
+   }
+  ]
+ },
+ {
+  "id": "chat-fomc-why",
+  "note": "GOOD: explains FOMC and why crypto cares, ideally adds next meeting date from get_macro.",
+  "turns": [
+   {
+    "from": "0xRiri",
+    "text": "what is the fomc and why does crypto even care"
+   }
+  ]
+ },
+ {
+  "id": "chat-week-compare",
+  "note": "GOOD: gives BTC price; for 'vs last week' it says honestly it only has the 24h change (no weekly data) or uses what it has; no invented weekly number.",
+  "turns": [
+   {
+    "from": "kai",
+    "text": "btc price?"
+   },
+   {
+    "from": "kai",
+    "text": "and how's that compare to last week?"
+   }
+  ]
+ },
+ {
+  "id": "chat-solana-today",
+  "note": "GOOD: news/price context on Solana today with links; no prediction.",
+  "turns": [
+   {
+    "from": "sol_maxi",
+    "text": "anything happening with solana today?"
+   }
+  ]
+ },
+ {
+  "id": "chat-gm-morning",
+  "note": "GOOD: warm, chatty gm, maybe one interesting tape tidbit or question back.",
+  "turns": [
+   {
+    "from": "Elias",
+    "text": "gm ledger how's your morning"
+   }
+  ]
+ },
+ {
+  "id": "normal-weekend",
+  "note": "GOOD: chats like a friend about the weekend; no self-intro, no redirect to other bots.",
+  "turns": [
+   {
+    "from": "kai",
+    "text": "yo ledger what you up to this weekend"
+   }
+  ]
+ },
+ {
+  "id": "normal-cat-coffee",
+  "note": "GOOD: light, warm, funny; no redirect.",
+  "turns": [
+   {
+    "from": "mo",
+    "text": "my cat just knocked my coffee onto my keyboard 😭"
+   }
+  ]
+ },
+ {
+  "id": "normal-movie",
+  "note": "GOOD: actually recommends something (maybe market-themed), chats on.",
+  "turns": [
+   {
+    "from": "0xRiri",
+    "text": "recommend me a movie for tonight"
+   }
+  ]
+ },
+ {
+  "id": "normal-drink",
+  "note": "GOOD: plays along warmly; does NOT send them to Zima.",
+  "turns": [
+   {
+    "from": "lowkey_lex",
+    "text": "pour me something strong, nvda cooked my week"
+   }
+  ]
+ },
+ {
+  "id": "normal-favorite-coin",
+  "note": "GOOD: gives a personal-taste answer (tech/design/culture), not a price call; no redirect.",
+  "turns": [
+   {
+    "from": "vexx",
+    "text": "whats your favorite coin and why"
+   }
+  ]
+ },
+ {
+  "id": "normal-sol-buy",
+  "note": "GOOD: talks it through (tape, bull/bear points, what's coming), no buy instruction, no redirect to Doji; may offer a watch.",
+  "turns": [
+   {
+    "from": "sol_maxi",
+    "text": "should i buy sol here or wait"
+   }
+  ]
  }
 ]

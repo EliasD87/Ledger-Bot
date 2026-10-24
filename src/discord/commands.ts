@@ -1,9 +1,6 @@
 import {
-  ActionRowBuilder,
-  type ButtonBuilder,
   ChannelType,
   type ChatInputCommandInteraction,
-  EmbedBuilder,
   type Interaction,
   InteractionContextType,
   MessageFlags,
@@ -32,11 +29,12 @@ import { refreshCard } from './announcer.js';
 import { handleCallButton } from './callButtons.js';
 import { draftCard } from './callCards.js';
 import { handleDailyButton } from './dailyButtons.js';
-import { flowsEmbed, macroEmbed, marketEmbed, newsEmbed, treasuriesEmbed } from './deskCards.js';
+import { flowsCard, macroCard, marketCard, newsCard, treasuriesCard } from './deskCards.js';
 import type { ServerMemory } from './memory.js';
 import { handlePageInteraction, showMyPage } from './pageButtons.js';
-import { callLink, myPageButton, receiptsEmbed } from './pageCards.js';
+import { callLink, myPageButton, receiptsContainer } from './pageCards.js';
 import { postableReply } from './text.js';
+import { ACCENT, card, cards, kicker, replyWithCards, row } from './ui.js';
 import { handleWatchButton, watchButton } from './watchButtons.js';
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -203,7 +201,7 @@ export async function handleInteraction(interaction: Interaction, deps: CommandD
     case 'receipts': {
       const member = interaction.options.getMember('member') ?? interaction.member;
       deps.board.remember(member.id, member.displayName);
-      await interaction.reply({ embeds: [receiptsEmbed(deps.board, deps.daily, interaction.guildId, { id: member.id, name: member.displayName }, Date.now())] });
+      await interaction.reply(cards([receiptsContainer(deps.board, deps.daily, interaction.guildId, { id: member.id, name: member.displayName }, Date.now())]));
       return;
     }
     case 'board':
@@ -255,7 +253,7 @@ async function call(interaction: ChatInputCommandInteraction<'cached'>, { feed, 
     );
     return;
   }
-  const message = await interaction.editReply(draftCard(result.call));
+  const message = await replyWithCards(interaction, draftCard(result.call));
   board.attachMessage(result.call.id, interaction.channelId, message.id);
 }
 
@@ -312,25 +310,24 @@ async function tape(interaction: ChatInputCommandInteraction<'cached'>, { desk }
   const asset = interaction.options.getString('asset')?.trim().toUpperCase().replace(/^\$/, '');
   await interaction.deferReply();
   try {
-    const row = new ActionRowBuilder<ButtonBuilder>();
-    let embed: EmbedBuilder;
+    const page = myPageButton(interaction.guildId);
+    let tapeCard;
     if (topic === 'flows') {
       const which = asset ?? 'BTC';
       const report = await desk.flows(which);
-      embed = report ? flowsEmbed(report) : new EmbedBuilder().setTitle(`📒 ${which} spot ETF flows`).setDescription(`No US spot ETF flow data for ${which}. Try: ${ETF_ASSETS.join(', ')}.`);
-      if (report) row.addComponents(watchButton({ kind: 'flows', asset: report.asset }));
+      tapeCard = report
+        ? flowsCard(report, row(watchButton({ kind: 'flows', asset: report.asset }), page))
+        : card(ACCENT.muted, [`No US spot ETF flow data for ${which}.`, kicker(`Try: ${ETF_ASSETS.join(', ')}`)]);
     } else if (topic === 'macro') {
-      embed = macroEmbed(await desk.macro());
+      tapeCard = macroCard(await desk.macro(), row(page));
     } else if (topic === 'buys') {
-      embed = treasuriesEmbed(desk.treasuryBuys(14), desk.treasuries.ready, 14);
-      row.addComponents(watchButton({ kind: 'buys' }));
+      tapeCard = treasuriesCard(desk.treasuryBuys(14), desk.treasuries.ready, 14, row(watchButton({ kind: 'buys' }), page));
     } else if (topic === 'news') {
-      embed = newsEmbed(await desk.news(asset));
+      tapeCard = newsCard(await desk.news(asset), row(page));
     } else {
-      embed = marketEmbed(await desk.market());
+      tapeCard = marketCard(await desk.market(), row(page));
     }
-    row.addComponents(myPageButton(interaction.guildId));
-    await interaction.editReply({ embeds: [embed], components: [row] });
+    await replyWithCards(interaction, cards([tapeCard]));
   } catch (err) {
     log.warn(`/tape ${topic} failed`, err);
     await interaction.editReply("SoSoValue isn't answering right now. Try again in a minute.");
@@ -347,28 +344,35 @@ async function board(interaction: ChatInputCommandInteraction<'cached'>, { board
       const agree = positions.filter((p) => p.side === 'back').length;
       return `${callLink(c)} ${callHeadline(c)} ${c.kind === 'touch' ? 'by' : 'at'} ${discordTime(c.deadline, 'R')} · <@${c.callerId}> · ${agree} agree, ${positions.length - agree} disagree`;
     });
-    const embed = new EmbedBuilder()
-      .setColor(0x5865f2)
-      .setTitle(`📒 Open calls (${open.length})`)
-      .setDescription(lines.length ? lines.join('\n') + (open.length > 15 ? `\n+${open.length - 15} more` : '') : "No open calls. Make one: `/call` or `@Ledger I call BTC hits 90k by Friday`.");
-    await interaction.reply({ embeds: [embed] });
+    await interaction.reply(
+      cards([
+        card(ACCENT.open, [
+          `## 📒 Open calls · ${open.length}`,
+          lines.length ? lines.join('\n') : 'No open calls.',
+          open.length > 15 && kicker(`+${open.length - 15} more`),
+          !lines.length && kicker('Make one: /call or @Ledger I call BTC hits 90k by Friday'),
+        ]),
+      ]),
+    );
     return;
   }
   const allTime = view === 'all-time';
   const standings = board.leaderboard(interaction.guildId, allTime ? 0 : seasonStart(now));
-  const embed = new EmbedBuilder().setColor(0x5865f2).setTitle(allTime ? '📒 Board · all time' : `📒 Board · ${monthLabel(now)} season`);
-  if (!standings.length) {
-    embed.setDescription("Nobody's on the board yet. Answer the daily question or make a call.");
-  } else {
-    const medals = ['🥇', '🥈', '🥉'];
-    const line = (s: (typeof standings)[number], i: number) =>
-      `${medals[i] ?? `**${i + 1}.**`} <@${s.userId}> **${formatPoints(s.points)}** · calls ${s.wins}–${s.losses} (${formatPoints(s.callPoints)}) · daily ${formatPoints(s.dailyPoints)}`;
-    const lines = standings.slice(0, 10).map(line);
-    const mine = standings.findIndex((s) => s.userId === interaction.user.id);
-    if (mine >= 10) lines.push('…', line(standings[mine]!, mine));
-    embed.setDescription(lines.join('\n')).setFooter({ text: 'Rep = call scores (result minus rating) + daily answers. Agree/disagree is recorded, not scored.' });
-  }
-  await interaction.reply({ embeds: [embed] });
+  const medals = ['🥇', '🥈', '🥉'];
+  const line = (s: (typeof standings)[number], i: number) =>
+    `${medals[i] ?? `\`${String(i + 1).padStart(2)}\``}  <@${s.userId}>  **${formatPoints(s.points)}**  ·  ${s.wins}–${s.losses}${s.dailyPoints ? `  ·  daily ${formatPoints(s.dailyPoints)}` : ''}`;
+  const lines = standings.slice(0, 10).map(line);
+  const mine = standings.findIndex((s) => s.userId === interaction.user.id);
+  if (mine >= 10) lines.push('⋯', line(standings[mine]!, mine));
+  await interaction.reply(
+    cards([
+      card(ACCENT.page, [
+        `## 📒 ${allTime ? 'All-time board' : `${monthLabel(now)} board`}`,
+        lines.length ? lines.join('\n') : "Nobody's on the board yet. Make a call to get on it.",
+        kicker('Rep = call scores (result minus rating) + daily answers · agree/disagree is recorded, not scored'),
+      ]),
+    ]),
+  );
 }
 
 /** /recall: a private summary of what people said about a topic, only from channels the member can read. */

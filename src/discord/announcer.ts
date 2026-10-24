@@ -1,11 +1,12 @@
-import type { BaseMessageOptions, Client } from 'discord.js';
+import type { Client } from 'discord.js';
 import { DRAFT_TTL_MS } from '../calls/service.js';
 import type { Settlement } from '../calls/settle.js';
 import type { Board, Call } from '../calls/store.js';
 import { log } from '../log.js';
-import { callCard, settlementText } from './callCards.js';
+import { callCard, settlementPost } from './callCards.js';
+import { replacing } from './ui.js';
 
-/** Updates the call card to its final state and posts the result, pinging everyone on the call. */
+/** Updates the call card to its final state and posts the result as a reply to it, pinging only the caller. */
 export async function announceSettlement(client: Client, s: Settlement): Promise<void> {
   const channel = await client.channels.fetch(s.call.channelId).catch(() => null);
   if (!channel?.isSendable() || !channel.isTextBased()) {
@@ -14,8 +15,7 @@ export async function announceSettlement(client: Client, s: Settlement): Promise
   }
   await editCard(client, s.call, callCard(s.call, s.positions));
   await channel.send({
-    content: settlementText(s),
-    allowedMentions: { users: [s.call.callerId] },
+    ...settlementPost(s),
     ...(s.call.messageId ? { reply: { messageReference: s.call.messageId, failIfNotExists: false } } : {}),
   });
 }
@@ -34,13 +34,13 @@ export async function refreshCard(client: Client, board: Board, callId: number):
   if (call) await editCard(client, call, callCard(call, board.positions(callId)));
 }
 
-async function editCard(client: Client, call: Call, payload: BaseMessageOptions): Promise<void> {
+async function editCard(client: Client, call: Call, payload: ReturnType<typeof callCard>): Promise<void> {
   if (!call.messageId) return;
   try {
     const channel = await client.channels.fetch(call.channelId);
     if (!channel?.isTextBased()) return;
     const message = await channel.messages.fetch(call.messageId);
-    await message.edit(payload);
+    await message.edit(replacing(message, payload));
   } catch (err) {
     log.warn(`Couldn't update the card for call #${call.id}`, err);
   }

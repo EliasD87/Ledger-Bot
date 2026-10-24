@@ -15,7 +15,8 @@
     "test": "vitest run",
     "backtest": "tsx scripts/backtest-odds.ts",
     "check": "tsx scripts/check-setup.ts",
-    "chat-eval": "tsx scripts/chat-eval.ts"
+    "chat-eval": "tsx scripts/chat-eval.ts",
+    "preview": "tsx scripts/preview-cards.ts"
   },
   "dependencies": {
     "discord.js": "^14.27.0",

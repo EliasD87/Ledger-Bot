@@ -7,6 +7,7 @@ import { log } from '../log.js';
 import type { Metrics } from '../metrics.js';
 import { callCard, parseButtonId } from './callCards.js';
 import { pageRow } from './pageCards.js';
+import { replacing } from './ui.js';
 
 export interface CallButtonDeps {
   board: Board;
@@ -60,7 +61,7 @@ async function lock(interaction: ButtonInteraction, call: Call, { board, feed }:
   const now = Date.now();
   if (now - call.createdAt > DRAFT_TTL_MS) {
     board.cancel(call.id, 'draft expired');
-    await interaction.update(callCard(board.get(call.id)!, []));
+    await interaction.update(replacing(interaction.message, callCard(board.get(call.id)!, [])));
     await interaction.followUp({ flags: MessageFlags.Ephemeral, content: 'Draft expired; its chance is out of date. Make the call again.' });
     return;
   }
@@ -77,7 +78,7 @@ async function lock(interaction: ButtonInteraction, call: Call, { board, feed }:
   if (!fresh.quote.ok) {
     const why = refusalText(fresh.quote, call.base, fresh.spot);
     board.cancel(call.id, `price moved: ${why}`);
-    await interaction.editReply(callCard(board.get(call.id)!, []));
+    await interaction.editReply(replacing(interaction.message, callCard(board.get(call.id)!, [])));
     await interaction.followUp({ flags: MessageFlags.Ephemeral, content: `Price moved since the draft. ${why}` });
     return;
   }
@@ -86,7 +87,8 @@ async function lock(interaction: ButtonInteraction, call: Call, { board, feed }:
     await interaction.followUp({ flags: MessageFlags.Ephemeral, content: `Call #${call.id} was already handled.` });
     return;
   }
-  await interaction.editReply(callCard(board.get(call.id)!, board.positions(call.id)));
+  // The draft message becomes the live card; the chat text that came with it said "press Lock it in", now done.
+  await interaction.editReply(replacing(interaction.message, callCard(board.get(call.id)!, board.positions(call.id))));
 }
 
 async function cancel(interaction: ButtonInteraction, call: Call, { board }: CallButtonDeps): Promise<void> {
@@ -98,7 +100,7 @@ async function cancel(interaction: ButtonInteraction, call: Call, { board }: Cal
     await interaction.reply({ flags: MessageFlags.Ephemeral, content: `Call #${call.id} is ${call.status}; too late to cancel.` });
     return;
   }
-  await interaction.update(callCard(board.get(call.id)!, []));
+  await interaction.update(replacing(interaction.message, callCard(board.get(call.id)!, [])));
 }
 
 async function join(interaction: ButtonInteraction, call: Call, side: Side, deps: CallButtonDeps): Promise<void> {
@@ -143,12 +145,10 @@ async function join(interaction: ButtonInteraction, call: Call, side: Side, deps
     return;
   }
   await interaction.editReply({
-    content:
-      `${side === 'back' ? '✅ On the record: you agree with' : '❌ On the record: you disagree with'} call #${call.id}. ` +
-      `It goes on your receipts as right or wrong; agreeing and disagreeing don't move points.`,
-    components: [pageRow()],
+    content: `${side === 'back' ? 'You agree with' : 'You disagree with'} call #${call.id}.\n-# It goes on your receipts as right or wrong. No points move.`,
+    components: [pageRow(call.guildId)],
   });
-  await interaction.message.edit(callCard(board.get(call.id)!, board.positions(call.id))).catch((err) => {
+  await interaction.message.edit(replacing(interaction.message, callCard(board.get(call.id)!, board.positions(call.id)))).catch((err) => {
     log.warn(`Couldn't update the card for call #${call.id}`, err);
   });
 }

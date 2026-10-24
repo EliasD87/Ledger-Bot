@@ -18,6 +18,13 @@ describe('replyProblems', () => {
     expect(check('ETH 2,412, ETFs −$635.5M, cap $2.73T. BTC 82,000 by tonight.', { sources })).toEqual([]);
   });
 
+  it('lets general knowledge through but still catches prices from memory', () => {
+    expect(check("BTC's supply caps at 21 million coins and halves every 210,000 blocks; the last halving was in 2024.")).toEqual([]);
+    expect(check('Strategy has about 640,000 BTC and 1,500 employees.')[0]).toBeUndefined();
+    expect(check('SOL is trading at 104.69 and ETH near 2,412.')[0]).toMatch(/104\.69/);
+    expect(check('MSTR is up 3.9% today.')[0]).toMatch(/3\.9/);
+  });
+
   it('leaves small numbers, times, ids, years and links alone', () => {
     expect(check('Rated 13%: a stretch. Alert #12, Sun 25 Oct 23:59 UTC, 0–2 in 2026. https://x.com/a/status/1849021733')).toEqual([]);
   });

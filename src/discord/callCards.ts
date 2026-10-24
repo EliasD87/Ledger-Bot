@@ -1,28 +1,21 @@
-import { ActionRowBuilder, type BaseMessageOptions, ButtonBuilder, ButtonStyle, EmbedBuilder } from 'discord.js';
+import { ButtonBuilder, ButtonStyle, type ContainerBuilder } from 'discord.js';
 import { DRAFT_TTL_MS, callHeadline } from '../calls/service.js';
 import type { Settlement } from '../calls/settle.js';
 import type { Call, CallStatus, Position } from '../calls/store.js';
 import { discordTime, formatChance, formatPrice } from '../format.js';
+import { myPageButton } from './pageCards.js';
+import { ACCENT, card, cards, divider, heading, kicker, row } from './ui.js';
 
-const COLOR: Record<CallStatus, number> = {
-  draft: 0xf1c40f,
-  open: 0x5865f2,
-  won: 0x2ecc71,
-  lost: 0xe74c3c,
-  void: 0x95a5a6,
-  cancelled: 0x95a5a6,
+const EDGE: Record<CallStatus, number> = {
+  draft: ACCENT.amber,
+  open: ACCENT.open,
+  won: ACCENT.right,
+  lost: ACCENT.wrong,
+  void: ACCENT.muted,
+  cancelled: ACCENT.muted,
 };
 
-const STATUS: Record<CallStatus, string> = {
-  draft: 'draft',
-  open: 'open',
-  won: 'right ✅',
-  lost: 'wrong ❌',
-  void: 'void',
-  cancelled: 'cancelled',
-};
-
-const NOT_MONEY = 'Points are reputation, not money.';
+const NOT_MONEY = 'points are reputation, not money';
 
 /** Button actions. Internally a position "backs" (agrees with) or "fades" (disagrees with) a call. */
 export type ButtonAction = 'lock' | 'cancel' | 'back' | 'fade';
@@ -41,96 +34,115 @@ export function difficulty(chance: number): string {
   return chance < 0.25 ? 'a stretch' : chance < 0.6 ? 'even-ish' : 'the likelier side';
 }
 
+/** The draft as a card, for a chat reply to carry under its text. */
+export function draftContainer(call: Call): ContainerBuilder {
+  return card(EDGE.draft, [
+    kicker(`📒 Draft · <@${call.callerId}>`),
+    heading(callHeadline(call)),
+    whenLine(call),
+    `Spot **${formatPrice(call.entryPrice)}** · rated **${formatChance(call.chance)}** · ${difficulty(call.chance)}`,
+    row(
+      new ButtonBuilder().setCustomId(buttonId('lock', call.id)).setLabel('Lock it in').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId(buttonId('cancel', call.id)).setLabel('Cancel').setStyle(ButtonStyle.Secondary),
+    ),
+    kicker(`Expires in ${DRAFT_TTL_MS / 60_000} min · rated from ${call.base}'s recent volatility · ${NOT_MONEY}`),
+  ]);
+}
+
 /** The card a caller sees before locking in: the call and its rating, plus Lock it in / Cancel. */
-export function draftCard(call: Call): BaseMessageOptions {
-  const embed = baseEmbed(call)
-    .addFields(
-      { name: 'Caller', value: `<@${call.callerId}>`, inline: true },
-      { name: 'Spot', value: formatPrice(call.entryPrice), inline: true },
-      { name: 'Rated', value: `${formatChance(call.chance)} (${difficulty(call.chance)})`, inline: true },
-    )
-    .setFooter({
-      text:
-        `Rated from ${call.base}'s recent volatility. Only the caller can lock it in; the rating is re-checked then. ` +
-        `Draft expires in ${DRAFT_TTL_MS / 60_000} minutes. ${NOT_MONEY}`,
-    });
-  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder().setCustomId(buttonId('lock', call.id)).setLabel('Lock it in').setEmoji('🔒').setStyle(ButtonStyle.Success),
-    new ButtonBuilder().setCustomId(buttonId('cancel', call.id)).setLabel('Cancel').setStyle(ButtonStyle.Secondary),
-  );
-  return { embeds: [embed], components: [row] };
+export function draftCard(call: Call) {
+  return cards([draftContainer(call)]);
 }
 
-/** The card of a locked (or finished) call: who agrees and disagrees, the result, and the buttons while it's open. */
-export function callCard(call: Call, positions: Position[]): BaseMessageOptions {
-  const agree = positions.filter((p) => p.side === 'back');
-  const disagree = positions.filter((p) => p.side === 'fade');
-  const embed = baseEmbed(call).addFields(
-    { name: 'Caller', value: `<@${call.callerId}>`, inline: true },
-    { name: call.lockedAt ? 'Entry' : 'Spot', value: formatPrice(call.entryPrice), inline: true },
-    { name: call.lockedAt ? 'Rated at lock' : 'Rated', value: `${formatChance(call.chance)} (${difficulty(call.chance)})`, inline: true },
-    { name: `Agree (${agree.length})`, value: roster(agree), inline: true },
-    { name: `Disagree (${disagree.length})`, value: roster(disagree), inline: true },
-  );
-  const result = resultLine(call);
-  if (result) embed.addFields({ name: 'Result', value: result });
+/** A call's card in any state after the draft: live with Agree / Disagree, then its result. */
+export function callContainer(call: Call, positions: Position[]): ContainerBuilder {
+  const leans = positions.filter((p) => p.userId !== call.callerId);
+  const status = call.status === 'won' ? ' · ✓ right' : call.status === 'lost' ? ' · ✗ wrong' : call.status === 'open' ? '' : ` · ${call.status}`;
+  const head = [kicker(`📒 Call #${call.id} · <@${call.callerId}>${status}`), heading(callHeadline(call))];
 
-  if (call.status !== 'open') return { embeds: [embed], components: [] };
-  embed.setFooter({
-    text: `Agree or disagree to put your read on the record. Resolves automatically against live prices. ${NOT_MONEY}`,
-  });
-  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder().setCustomId(buttonId('back', call.id)).setLabel('Agree').setEmoji('✅').setStyle(ButtonStyle.Success),
-    new ButtonBuilder().setCustomId(buttonId('fade', call.id)).setLabel('Disagree').setEmoji('❌').setStyle(ButtonStyle.Danger),
-  );
-  return { embeds: [embed], components: [row] };
+  if (call.status === 'void' || call.status === 'cancelled') {
+    return card(EDGE[call.status], [
+      ...head,
+      call.status === 'void' ? `Voided${call.note ? `: ${call.note}` : ''}. No points either way.` : `Cancelled${call.note ? `: ${call.note}` : ''}. Never went on the record.`,
+    ]);
+  }
+  if (call.status === 'open') {
+    const agree = leans.filter((p) => p.side === 'back');
+    const disagree = leans.filter((p) => p.side === 'fade');
+    return card(EDGE.open, [
+      ...head,
+      whenLine(call),
+      `Entry **${formatPrice(call.entryPrice)}** · rated **${formatChance(call.chance)}** at lock · ${difficulty(call.chance)}`,
+      divider(),
+      `**${agree.length}** agree · **${disagree.length}** disagree`,
+      leans.length > 0 && kicker([...agree.map((p) => `<@${p.userId}> agrees`), ...disagree.map((p) => `<@${p.userId}> disagrees`)].slice(0, 20).join(' · ')),
+      row(
+        new ButtonBuilder().setCustomId(buttonId('back', call.id)).setLabel('Agree').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(buttonId('fade', call.id)).setLabel('Disagree').setStyle(ButtonStyle.Secondary),
+      ),
+      kicker(`Settles by itself on live prices · ${NOT_MONEY}`),
+    ]);
+  }
+  // Settled.
+  const right = leans.filter((p) => p.result === 'won');
+  return card(EDGE[call.status], [
+    ...head,
+    outcomeLine(call),
+    kicker(`Rated ${formatChance(call.chance)} at lock · ${difficulty(call.chance)}`),
+    leans.length > 0 && divider(),
+    leans.length > 0 && `${right.length} of ${leans.length} read it right`,
+    leans.length > 0 && kicker(leans.slice(0, 20).map((p) => `<@${p.userId}> ${p.result === 'won' ? '✓' : '✗'}`).join(' · ')),
+  ]);
 }
 
-/** The public result post: what happened and who read it right. Only the caller is pinged; no points in public. */
-export function settlementText({ call, positions, won, price, at }: Settlement): string {
-  const head = won
-    ? call.kind === 'touch'
-      ? `✅ **Call #${call.id} was right.** ${call.base} reached ${formatPrice(price)} at ${discordTime(at, 't')}. <@${call.callerId}> called it.`
-      : `✅ **Call #${call.id} was right.** ${call.base} closed at ${formatPrice(price)} at the deadline. <@${call.callerId}> called it.`
-    : call.kind === 'touch'
-      ? `❌ **Call #${call.id} was wrong.** ${call.base} never reached ${formatPrice(call.target)} before the deadline (last ${formatPrice(price)}).`
-      : `❌ **Call #${call.id} was wrong.** ${call.base} closed at ${formatPrice(price)}, on the wrong side of ${formatPrice(call.target)}.`;
+export function callCard(call: Call, positions: Position[]) {
+  return cards([callContainer(call, positions)]);
+}
+
+/** The public result post, replying to the card: what happened and who read it right. Pings only the caller; no points in public. */
+export function settlementPost(s: Settlement) {
+  const { call, positions, won, price, at } = s;
   const leans = positions.filter((p) => p.userId !== call.callerId);
   const right = leans.filter((p) => p.result === 'won').length;
-  const agreed = leans.filter((p) => p.side === 'back').length;
-  const tally = leans.length ? `\nAgreed ${agreed} · disagreed ${leans.length - agreed} · ${right} of ${leans.length} read it right.` : '';
-  return `${head} It was ${difficulty(call.chance)}.${tally}\n-# In ink. /ledger shows your page.`;
-}
-
-function baseEmbed(call: Call): EmbedBuilder {
-  const deadline = `${discordTime(call.deadline)} (${discordTime(call.deadline, 'R')})`;
-  const rule =
+  const what =
     call.kind === 'touch'
-      ? `Right if price touches the target any time before ${deadline}.`
-      : `Judged on the price at ${deadline}.`;
-  return new EmbedBuilder()
-    .setColor(COLOR[call.status])
-    .setTitle(`📒 Call #${call.id} · ${STATUS[call.status]}`)
-    .setDescription(`**${callHeadline(call)}**\n${rule}`);
+      ? won
+        ? `${call.base} reached **${formatPrice(price)}** at ${discordTime(at, 't')}.`
+        : `${call.base} never got there before the deadline · last **${formatPrice(price)}**.`
+      : `${call.base} closed at **${formatPrice(price)}** at the deadline.`;
+  return cards(
+    [
+      card(won ? ACCENT.right : ACCENT.wrong, [
+        kicker(`📒 Result · call #${call.id}`),
+        heading(`${callHeadline(call)} · ${won ? 'right' : 'wrong'}`),
+        `<@${call.callerId}> ${won ? 'called it' : 'missed this one'}. ${what}`,
+        kicker(`It was ${difficulty(call.chance)} · ${leans.length ? `${right} of ${leans.length} read it right · ` : ''}in ink`),
+        row(myPageButton(call.guildId)),
+      ]),
+    ],
+    { ping: [call.callerId] },
+  );
 }
 
-function roster(positions: Position[]): string {
-  if (positions.length === 0) return '—';
-  const shown = positions.slice(0, 15).map((p) => `<@${p.userId}>${p.result === 'won' ? ' ✅' : p.result === 'lost' ? ' ❌' : ''}`);
-  return positions.length > 15 ? `${shown.join('\n')}\n+${positions.length - 15} more` : shown.join('\n');
+/** The result in one plain line (for logs and anywhere a card won't fit). */
+export function settlementText({ call, won, price }: Settlement): string {
+  return `${won ? '✓' : '✗'} Call #${call.id} ${callHeadline(call)} was ${won ? 'right' : 'wrong'} (${call.kind === 'touch' && !won ? 'last' : 'at'} ${formatPrice(price)}). It was ${difficulty(call.chance)}.`;
 }
 
-function resultLine(call: Call): string | null {
-  switch (call.status) {
-    case 'won':
-      return `Right: reached ${formatPrice(call.settlePrice ?? call.target)}, ${discordTime(call.settleTime ?? call.settledAt ?? 0)}.`;
-    case 'lost':
-      return `Wrong. Price at the deadline: ${formatPrice(call.settlePrice ?? 0)}.`;
-    case 'void':
-      return `Voided${call.note ? `: ${call.note}` : ''}. No points either way.`;
-    case 'cancelled':
-      return `Cancelled${call.note ? `: ${call.note}` : ''}. Never went on the record.`;
-    default:
-      return null;
+function whenLine(call: Pick<Call, 'kind' | 'deadline'>): string {
+  return call.kind === 'touch'
+    ? `Touch any time before ${discordTime(call.deadline)} · ${discordTime(call.deadline, 'R')}`
+    : `Judged on the price at ${discordTime(call.deadline)} · ${discordTime(call.deadline, 'R')}`;
+}
+
+function outcomeLine(call: Call): string {
+  const at = call.settleTime ?? call.settledAt ?? call.deadline;
+  if (call.status === 'won') {
+    return call.kind === 'touch'
+      ? `Reached **${formatPrice(call.settlePrice ?? call.target)}** · ${discordTime(at)}`
+      : `Closed at **${formatPrice(call.settlePrice ?? call.target)}** at the deadline`;
   }
+  return call.kind === 'touch'
+    ? `Never got there before ${discordTime(call.deadline)} · last **${formatPrice(call.settlePrice ?? 0)}**`
+    : `Closed at **${formatPrice(call.settlePrice ?? 0)}** at the deadline`;
 }

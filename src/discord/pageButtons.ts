@@ -8,7 +8,8 @@ import type { Metrics } from '../metrics.js';
 import { type PageDeps, buildMyPage } from '../pages/myPage.js';
 import { count, discordTime } from '../format.js';
 import type { ServerMemory } from './memory.js';
-import { HOW_IT_WORKS, myPageMessage, parsePageButtonId, receiptsEmbed } from './pageCards.js';
+import { howItWorks, myPageMessage, parsePageButtonId, receiptsContainer } from './pageCards.js';
+import { privateCards, replyWithCards } from './ui.js';
 import { postableReply } from './text.js';
 
 export interface PageInteractionDeps extends PageDeps {
@@ -35,7 +36,7 @@ export async function showMyPage(interaction: Opener, deps: PageInteractionDeps,
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   const page = await buildMyPage(deps, guildId, interaction.user.id, Date.now());
   deps.metrics.record({ type: 'page_open', guildId, channelId: interaction.channelId, userId: interaction.user.id, meta: { pillar: 'page', source } });
-  await interaction.editReply(myPageMessage(page, guildId, interaction.inGuild()));
+  await replyWithCards(interaction, myPageMessage(page, guildId, interaction.inGuild()), { ephemeral: true });
 }
 
 /** [My page], [Receipts], [How it works] and the catch-up channel picker. */
@@ -47,16 +48,13 @@ export async function handlePageInteraction(interaction: ButtonInteraction | Cha
   if (parsed.action === 'me' && interaction.isButton()) return showMyPage(interaction, deps, guildId, 'button');
 
   if (parsed.action === 'how') {
-    await interaction.reply({ flags: MessageFlags.Ephemeral, content: HOW_IT_WORKS });
+    await interaction.reply(howItWorks());
     return;
   }
 
   if (parsed.action === 'receipts') {
     const name = interaction.member && 'displayName' in interaction.member ? interaction.member.displayName : interaction.user.displayName;
-    await interaction.reply({
-      flags: MessageFlags.Ephemeral,
-      embeds: [receiptsEmbed(deps.board, deps.daily, guildId, { id: interaction.user.id, name }, Date.now())],
-    });
+    await interaction.reply(privateCards([receiptsContainer(deps.board, deps.daily, guildId, { id: interaction.user.id, name }, Date.now())]));
     return;
   }
 

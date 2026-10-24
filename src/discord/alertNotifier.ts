@@ -1,9 +1,10 @@
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, type Client } from 'discord.js';
+import { ButtonBuilder, ButtonStyle, type Client } from 'discord.js';
 import { describeAlert } from '../alerts/service.js';
 import type { AlertStore } from '../alerts/store.js';
 import type { AlertNotifier, PersonalBatch } from '../alerts/watcher.js';
 import { log } from '../log.js';
 import { pageButtonId } from './pageCards.js';
+import { ACCENT, card, cards, kicker, row } from './ui.js';
 import { watchStopId } from './watchButtons.js';
 
 /** Server prints allowed per server per UTC day, so the Ledger channel stays worth reading. */
@@ -21,17 +22,24 @@ export class DiscordAlertNotifier implements AlertNotifier {
   ) {}
 
   async personal(batch: PersonalBatch): Promise<void> {
-    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-      new ButtonBuilder().setCustomId(pageButtonId('me', batch.guildId)).setLabel('My page').setEmoji('📒').setStyle(ButtonStyle.Secondary),
-    );
     const repeating = batch.alerts.filter((a) => a.repeat);
-    if (repeating.length === 1) {
-      row.addComponents(new ButtonBuilder().setCustomId(watchStopId(repeating[0]!.id)).setLabel('Stop this watch').setStyle(ButtonStyle.Secondary));
-    }
-    const footer = `-# ${batch.alerts.map(describeAlert).join(' · ')}`.slice(0, 300);
+    const buttons = row(
+      new ButtonBuilder().setCustomId(pageButtonId('me', batch.guildId)).setLabel('My page').setEmoji('📒').setStyle(ButtonStyle.Secondary),
+      ...(repeating.length === 1
+        ? [new ButtonBuilder().setCustomId(watchStopId(repeating[0]!.id)).setLabel('Stop this watch').setStyle(ButtonStyle.Secondary)]
+        : []),
+    );
+    const dm = cards([
+      card(ACCENT.amber, [
+        kicker('🔔 Your watchlist'),
+        ...batch.texts.map(unbell),
+        buttons,
+        kicker(batch.alerts.map((a) => describeAlert(a).replace(/^Alert #(\d+): /, '#$1 ')).join(' · ').slice(0, 300)),
+      ]),
+    ]);
     try {
       const user = await this.client.users.fetch(batch.userId);
-      await user.send({ content: `${batch.texts.join('\n')}\n${footer}`.slice(0, 2000), components: [row] });
+      await user.send(dm);
     } catch (err) {
       log.debug(`Couldn't DM ${batch.userId}; the hit waits on their page`, err);
     }
@@ -48,11 +56,16 @@ export class DiscordAlertNotifier implements AlertNotifier {
       try {
         const channel = await this.client.channels.fetch(channelId);
         if (!channel?.isSendable()) continue;
-        await channel.send({ content: texts.join('\n').slice(0, 2000), allowedMentions: { parse: [] } });
+        await channel.send(cards([card(ACCENT.amber, [kicker('🔔 Ledger · on the tape'), ...texts.map(unbell)])]));
         this.store.markSeen(slot, Date.now());
       } catch (err) {
         log.warn(`Couldn't post a print in ${guildId}`, err);
       }
     }
   }
+}
+
+/** The card's kicker carries the bell; the lines don't need their own. */
+function unbell(text: string): string {
+  return text.replace(/^🔔\s*/, '');
 }

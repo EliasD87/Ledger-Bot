@@ -6,7 +6,7 @@ import { questionFor } from '../src/daily/questions.js';
 import { DailyStore } from '../src/daily/store.js';
 import { openDb } from '../src/db/index.js';
 import { todaysPageEmbed } from '../src/discord/deskCards.js';
-import { HOW_IT_WORKS, myPageMessage, receiptsEmbed } from '../src/discord/pageCards.js';
+import { howItWorks, myPageMessage, receiptsContainer } from '../src/discord/pageCards.js';
 import { Metrics } from '../src/metrics.js';
 import { Activity, buildMyPage } from '../src/pages/myPage.js';
 
@@ -80,8 +80,8 @@ describe('Your page', () => {
     const page = await buildMyPage({ ...deps, activity: new Activity(openDb(':memory:')) }, 'g', 'alice', NOW);
     const texts = [
       JSON.stringify(myPageMessage(page, 'g', true)),
-      JSON.stringify(receiptsEmbed(board, daily, 'g', { id: 'alice', name: 'Alice' }, NOW).toJSON()),
-      HOW_IT_WORKS,
+      JSON.stringify(receiptsContainer(board, daily, 'g', { id: 'alice', name: 'Alice' }, NOW).toJSON()),
+      JSON.stringify(howItWorks()),
     ];
     for (const text of texts) expect(text.replace(/"custom_id":"[^"]*"/g, '')).not.toMatch(BETTING);
   });

@@ -119,22 +119,13 @@ Ledger runs 24/7 on the shared VPS as the Linux user `ledger` (replace `<server-
 - It runs as the systemd user service `ledger` (512 MB memory cap, one core, restarts on crash and reboot).
 - Everything is done from the laptop in PowerShell. `deploy/setup.sh` and `deploy/start.sh` do the server-side work as root, including switching to `ledger`.
 
-**Shipping an update.** On the laptop, pack a bundle in Git Bash. It holds the committed code, `.env` and the deploy scripts; `deploy/*.tar.gz` is git-ignored because it contains keys:
-
-```bash
-mkdir -p /tmp/lb/deploy && git archive --format=tar.gz -o /tmp/lb/code.tar.gz HEAD && cp .env /tmp/lb/ && cp deploy/*.sh /tmp/lb/deploy/ && tar -czf deploy/ledger-bundle.tar.gz -C /tmp/lb code.tar.gz .env deploy && rm -rf /tmp/lb
-```
-
-Then in PowerShell:
+**Shipping an update.** Push to `main` on GitHub, then in PowerShell on the laptop:
 
 ```powershell
-scp deploy\ledger-bundle.tar.gz root@<server-ip>:/root/
-```
-```powershell
-ssh root@<server-ip> "mkdir -p /root/ledger-upload && tar -xzf /root/ledger-bundle.tar.gz -C /root/ledger-upload && bash /root/ledger-upload/deploy/setup.sh && rm -rf /root/ledger-upload /root/ledger-bundle.tar.gz"
+ssh root@<server-ip> "curl -fsSL https://raw.githubusercontent.com/EliasD87/Ledger-Bot/main/deploy/update.sh | bash"
 ```
 
-`setup.sh` rebuilds, runs `npm run check` and restarts Ledger. Never run `npm run dev` on the laptop while the server copy is up: both would answer every message.
+`deploy/update.sh` pulls the latest `main`, rebuilds and restarts Ledger as the `ledger` user, leaving `.env` and `data/` alone. `deploy/setup.sh` and `deploy/start.sh` are for a first install (or changing `.env`): they take an uploaded bundle with the code and `.env`. Never run `npm run dev` on the laptop while the server copy is up: both would answer every message.
 
 **Status and logs:**
 

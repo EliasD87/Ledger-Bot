@@ -157,7 +157,7 @@ describe('DataDesk', () => {
     expect(text).toContain('2nd day of inflows');
     expect(text).toContain('led by IBIT +$350.0M');
     expect(text).not.toContain('Corporate BTC buys'); // scan not finished yet
-    expect(text).toContain('CPI (YoY): **3.5%**');
+    expect(text).toContain('CPI (YoY) · **3.5%**');
     expect(text).not.toMatch(/\bodds\b|\bpays?\b|stake|\bbet\b/i);
   });
 });
