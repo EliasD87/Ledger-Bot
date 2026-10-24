@@ -53,7 +53,8 @@ Optional: an admin can run `/ledger-setup channel:#some-channel` for big market 
 | `npm run typecheck` | Type-check everything |
 | `npm run check` | Check the Discord token, DeepSeek, SoSoValue and the price feed without going online |
 | `npm run chat-eval -- scripts/chat-scenarios.json out.json --db copy.db [--only id1,id2]` | Play scripted conversations through the real chat pipeline (live DeepSeek and data) and save every reply with its tool calls and stress tests. Point `--db` at a copy of the database |
-| `npm run preview -- <channelId> [--take "..."]` | Post one of every card (with a real stress test) to a channel, to judge the look |
+| `npm run preview -- <channelId> [--take "..."]` | Post one of every card (with a real stress test and its chart) to a channel, to judge the look |
+| `npx tsx scripts/chart-samples.ts <folder>` | Render sample charts from live data into a folder, no Discord needed |
 
 ## Layout
 
@@ -90,6 +91,7 @@ src/
     desk.ts             flows, macro, treasuries, news, market
     recap.ts            "what moved yesterday"
     treasuries.ts       background scan for corporate BTC purchases
+  charts/               chart drawings (SVG by hand) turned into PNGs with resvg; fonts in assets/fonts (IBM Plex Sans, OFL)
   quotes.ts             live prices with backups
   calls/prices.ts       Binance market data
   sosovalue.ts          SoSoValue API client (rate-limited lanes)
@@ -115,7 +117,7 @@ Ledger runs 24/7 on the shared VPS as the Linux user `ledger` (replace `<server-
 
 - App in `/home/ledger/app`, database in `data/ledger.db`, log in `~/ledger.log`.
 - Node 24 is installed via nvm in that user's home.
-- It runs as the systemd user service `ledger` (512 MB memory cap, one core, restarts on crash and reboot).
+- It runs as the systemd user service `ledger` (1 GB memory cap for the bot and its chart helper, one core, restarts on crash and reboot).
 - Everything is done from the laptop in PowerShell. `deploy/setup.sh` and `deploy/start.sh` do the server-side work as root, including switching to `ledger`.
 
 **Shipping an update.** Push to `main` on GitHub, then in PowerShell on the laptop:
@@ -143,4 +145,4 @@ These are the host's rules, which the deploy has to follow:
 
 User services need "lingering" for that user (`loginctl enable-linger ledger`, already done by `setup.sh`).
 
-Expected footprint: about 100–200 MB of RAM, a small fraction of one core, and a few MB of disk.
+Expected footprint: about 150–300 MB of RAM (bot plus chart helper), a small fraction of one core, and a few tens of MB of disk.

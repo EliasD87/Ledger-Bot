@@ -72,7 +72,9 @@ Kinds:
 
 Assets are tickers: crypto (BTC, ETH, SOL, PEPE...) or US stocks and ETFs (NVDA, MSTR, COIN, SPY...). "bitcoin" is BTC, "microstrategy"/"strategy" is MSTR, "the nasdaq" is QQQ.
 Horizon in days from now (1 to 365): use the day counts given with the take, never count yourself. "this week" = days to this Sunday, or to next Sunday when that is under 3. "next week" = days to next Sunday. "this month" = days to month end (at least 7). "next month" = days to the end of next month. "this cycle", "long term" = 180. No timeframe = 30. Put any guess in assumptions.
-Vague takes ("SOL is the future", "ETH is dead", "MSTR is a scam") still get the closest checkable version: usually relative against the natural benchmark (alts vs ETH or BTC, crypto stocks vs BTC, stocks vs QQQ) or a move. Say what you chose in assumptions, in a few words.
+Vague takes ("SOL is the future", "ETH is dead", "MSTR is a scam") still get the closest checkable version: usually relative against the natural benchmark (alts vs ETH or BTC, crypto stocks vs BTC, stocks vs QQQ) or a move. Say what you chose in assumptions.
+Conditional takes ("if X happens, Y"): test Y only, and add the assumption "judged on Y alone, the 'if' isn't checked" in your own short words.
+Assumptions: at most 2, each a short phrase under 10 words, plain English ("'this month' = 8 days", "'flips' = outperforms, not market cap").
 
 Reply:
 {"type":"thesis","spec":{...},"assumptions":["..."]}
@@ -107,7 +109,9 @@ async function understand(
   };
   const problem = specProblem(spec);
   if (problem) return { ok: false, reason: 'needs-detail', message: problem };
-  const assumptions = Array.isArray(out.assumptions) ? out.assumptions.map(String).filter(Boolean).slice(0, 3) : [];
+  const assumptions = Array.isArray(out.assumptions)
+    ? out.assumptions.map((a) => String(a).trim()).filter(Boolean).slice(0, 2).map((a) => (a.length > 90 ? `${a.slice(0, 89)}…` : a))
+    : [];
   return { ok: true, spec, assumptions };
 }
 
@@ -115,7 +119,7 @@ async function understand(
 export function dayCounts(now: number): string {
   const d = new Date(now);
   const day = 86_400_000;
-  const until = (y: number, m: number, dd: number) => Math.max(1, Math.ceil((Date.UTC(y, m, dd, 23, 59) - now) / day));
+  const until = (y: number, m: number, dd: number) => Math.max(1, Math.floor((Date.UTC(y, m, dd, 23, 59) - now) / day));
   const y = d.getUTCFullYear();
   const m = d.getUTCMonth();
   const toSunday = (7 - d.getUTCDay()) % 7 || 7;

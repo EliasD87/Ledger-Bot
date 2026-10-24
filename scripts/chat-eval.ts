@@ -18,13 +18,14 @@ import { openDb } from '../src/db/index.js';
 import { DataDesk } from '../src/desk/desk.js';
 import { buildRecap } from '../src/desk/recap.js';
 import { TreasuryWatcher } from '../src/desk/treasuries.js';
-import { postableReply } from '../src/discord/text.js';
+import { cardCaption, postableReply } from '../src/discord/text.js';
 import { type ThreadMessage, toChatMessages } from '../src/discord/thread.js';
 import { DeepSeek, type Usage } from '../src/llm/deepseek.js';
 import { Spend } from '../src/llm/guards.js';
 import { answerChecked } from '../src/llm/replyCheck.js';
 import { topicTerms } from '../src/memory/archive.js';
 import { Activity, buildMyPage } from '../src/pages/myPage.js';
+import { Charts } from '../src/charts/maker.js';
 import { Members } from '../src/members.js';
 import { PERSONA, PERSONA_EXAMPLES, contextLine } from '../src/persona.js';
 import { CryptoQuotes, StockQuotes } from '../src/quotes.js';
@@ -78,6 +79,7 @@ const stocks = new StockQuotes(null);
 const history = new MarketHistory({ resolve: (asset) => crypto.resolve(asset), binance: feed });
 const evidence = new EvidenceBuilder({ history, desk });
 const measure = new Measure({ history, crypto, stocks, desk });
+const charts = new Charts({ history, desk });
 
 // The owner's real ID, so their records in a copied database show up; everyone else gets a stable fake one.
 const KNOWN: Record<string, string> = { elias: '1064109967025639496' };
@@ -115,7 +117,7 @@ for (const s of scenarios) {
   const tools = new ToolKit({
     members,
     theses,
-    take: { llm, evidence, theses, spend },
+    take: { llm, evidence, theses, spend, charts },
     evidence,
     measure,
     feed,
@@ -124,6 +126,7 @@ for (const s of scenarios) {
     memory: fakeMemory(s),
     myPage: (g, u) => buildMyPage({ theses, measure, alerts, activity }, g, u, Date.now()),
     quotes: { crypto, stocks },
+    charts,
   });
   const thread: ThreadMessage[] = [];
   const turns = [];
@@ -169,6 +172,8 @@ for (const s of scenarios) {
     cost += spend.since(0) - spentBefore;
     totalCost += cost;
     const d = session.draft;
+    // As in Discord: the line above a stress-test card is trimmed to its caption.
+    if (d) reply = cardCaption(reply);
     const draft = d
       ? {
           id: d.id,

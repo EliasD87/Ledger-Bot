@@ -32,6 +32,8 @@ export interface Evidence {
   baseRate: BaseRate | null;
   analogs: Analogs | null;
   sources: string[];
+  /** The price histories behind it, for charts. Not stored with the thesis. */
+  histories: History[];
 }
 
 const pct = (x: number, digits = 1) => `${x >= 0 ? '+' : '−'}${Math.abs(x * 100).toFixed(digits)}%`;
@@ -63,7 +65,7 @@ export class EvidenceBuilder {
     for (const h of histories) this.assetFacts(facts, h);
     if (histories.length === 2) this.pairFacts(facts, histories[0]!, histories[1]!);
     await this.contextFacts(facts, histories, 30);
-    return { facts: facts.all, start: null, measure: histories.map((h) => h.asset.symbol).join('/'), baseRate: null, analogs: null, sources: sourcesOf(histories) };
+    return { facts: facts.all, start: null, measure: histories.map((h) => h.asset.symbol).join('/'), baseRate: null, analogs: null, sources: sourcesOf(histories, facts), histories };
   }
 
   /** Evidence for a specific take, including how often what it needs has happened before. */
@@ -109,7 +111,7 @@ export class EvidenceBuilder {
       }
     }
     await this.contextFacts(facts, histories, spec.horizonDays);
-    return { facts: facts.all, start, measure: measureLabel(spec), baseRate: rate, analogs: similar, sources: sourcesOf(histories) };
+    return { facts: facts.all, start, measure: measureLabel(spec), baseRate: rate, analogs: similar, sources: sourcesOf(histories, facts), histories };
   }
 
   private async load(symbols: string[]): Promise<History[] | { error: string }> {
@@ -159,7 +161,9 @@ export class EvidenceBuilder {
     const label = `${a.asset.symbol}/${b.asset.symbol}`;
     const stock = a.asset.kind === 'stock' || b.asset.kind === 'stock';
     const parts = ([['7d', 7], ['30d', 30], ['90d', 90]] as const).map(([l, n]) => [l, change(r, bars(n, stock))] as const).filter(([, v]) => v !== null);
-    facts.add(`${label} ratio is ${r.at(-1)!.close.toPrecision(4)}: ${parts.map(([l, v]) => `${l} ${pct(v!)}`).join(', ')}.`);
+    facts.add(
+      `${label} ratio is ${r.at(-1)!.close.toPrecision(4)} (rising means ${a.asset.symbol} outperforms ${b.asset.symbol}): ${parts.map(([l, v]) => `${l} ${pct(v!)}`).join(', ')}.`,
+    );
     const range = rangePosition(r, bars(365, stock));
     if (range) facts.add(`${label} sits at the ${ordinal(Math.round(range.percentile * 100))} percentile of its 1-year range (${pct(range.fromHigh)} from the high).`);
     const corr = correlation(a.closes, b.closes, bars(90, stock));
@@ -190,36 +194,40 @@ export class EvidenceBuilder {
       if (month.length >= 10) {
         const inflowDays = month.filter((d) => (d.totalNetInflow ?? 0) > 0).length;
         const total = month.reduce((t, d) => t + (d.totalNetInflow ?? 0), 0);
-        facts.add(`${sym} spot ETFs over the last ${month.length} sessions: ${inflowDays} inflow days, ${month.length - inflowDays} outflow days, ${formatUsd(total, true)} net.`);
+        facts.add(`${sym} spot ETFs over the last ${month.length} sessions: ${inflowDays} inflow days, ${month.length - inflowDays} outflow days, ${formatUsd(total, true)} net.`, 'SoSoValue');
       }
       facts.add(
         `${sym} spot ETFs: ${formatUsd(f.latest.totalNetInflow!, true)} on ${f.latest.date}${lead ? ` (${lead.ticker} led)` : ''}` +
           `${f.streak.days >= 2 ? `, ${f.streak.days} sessions in a row of ${f.latest.totalNetInflow! > 0 ? 'inflows' : 'outflows'}` : ''}` +
           `; last ${recent.length} sessions ${formatUsd(sum, true)}.`,
+        'SoSoValue',
       );
     }
     const macro = await desk.macro().catch(() => null);
     const until = new Date(this.now + horizonDays * 86_400_000).toISOString().slice(0, 10);
     if (macro?.fomc && macro.fomc.meetingDate <= until) {
-      facts.add(`FOMC meets ${macro.fomc.meetingDate}, inside the window; market pricing: ${macro.fomc.ranges.map((r) => `${r.range} ${r.pct.toFixed(0)}%`).join(', ')}.`);
+      facts.add(`FOMC meets ${macro.fomc.meetingDate}, inside the window; market pricing: ${macro.fomc.ranges.map((r) => `${r.range} ${r.pct.toFixed(0)}%`).join(', ')}.`, 'SoSoValue');
     }
     const events = macro?.upcoming.filter((d) => d.date <= until).flatMap((d) => d.events.filter((e) => /CPI|PCE|payroll|GDP|unemployment|retail sales/i.test(e)).map((e) => `${e} (${d.date})`)) ?? [];
-    if (events.length) facts.add(`Macro inside the window: ${events.slice(0, 4).join(', ')}.`);
+    if (events.length) facts.add(`Macro inside the window: ${events.slice(0, 4).join(', ')}.`, 'SoSoValue');
     const news = await desk.news(main.symbol).catch(() => null);
     const titles = news?.items.slice(0, 3).map((n) => n.title) ?? [];
-    if (titles.length) facts.add(`Headlines${news?.asset ? ` on ${news.asset}` : ''}: ${titles.map((t) => `"${t.slice(0, 90)}"`).join('; ')}.`);
+    if (titles.length) facts.add(`Headlines${news?.asset ? ` on ${news.asset}` : ''}: ${titles.map((t) => `"${t.slice(0, 90)}"`).join('; ')}.`, 'SoSoValue');
   }
 }
 
 class FactList {
   readonly all: Fact[] = [];
-  add(text: string): void {
+  /** Data sources beyond the price history, for the card's small print. */
+  readonly sources = new Set<string>();
+  add(text: string, source?: string): void {
     this.all.push({ id: `F${this.all.length + 1}`, text });
+    if (source) this.sources.add(source);
   }
 }
 
-function sourcesOf(histories: History[]): string[] {
-  return [...new Set(histories.map((h) => h.source))];
+function sourcesOf(histories: History[], facts: FactList): string[] {
+  return [...new Set([...histories.map((h) => h.source), ...facts.sources])];
 }
 
 export type { Close };

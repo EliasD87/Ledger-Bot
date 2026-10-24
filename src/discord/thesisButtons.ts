@@ -1,4 +1,5 @@
 import { type ButtonInteraction, type Client, MessageFlags } from 'discord.js';
+import { CHART_NAME, type Charts } from '../charts/maker.js';
 import { log } from '../log.js';
 import type { Members } from '../members.js';
 import type { Metrics } from '../metrics.js';
@@ -7,13 +8,14 @@ import { held } from '../theses/spec.js';
 import type { ThesisStore } from '../theses/store.js';
 import { pageRow } from './pageCards.js';
 import { parseThesisButtonId, progressText, thesisCard, verdictPost } from './thesisCards.js';
-import { replacing } from './ui.js';
+import { rebuilding } from './ui.js';
 
 export interface ThesisButtonDeps {
   theses: ThesisStore;
   measure: Measure;
   members: Members;
   metrics: Metrics;
+  charts?: Charts;
 }
 
 /** Log it / Not now on a stress test; I'm with you / I'm against / How's it doing? on a thesis. */
@@ -36,7 +38,8 @@ export async function handleThesisButton(interaction: ButtonInteraction, deps: T
     meta: { pillar: 'takes', button: parsed.action, thesisId: t.id },
   });
   const now = Date.now();
-  const refresh = () => thesisCard(theses.get(t.id)!, theses.sides(t.id));
+  // The card rebuilt in place, its chart re-attached.
+  const refresh = () => rebuilding(interaction.message, CHART_NAME, (chart) => thesisCard(theses.get(t.id)!, theses.sides(t.id), { chart }));
 
   switch (parsed.action) {
     case 'log': {
@@ -55,7 +58,7 @@ export async function handleThesisButton(interaction: ButtonInteraction, deps: T
         await interaction.followUp({ flags: MessageFlags.Ephemeral, content: "Couldn't read the price to log it from. Try again in a minute." });
         return;
       }
-      await interaction.editReply(replacing(interaction.message, refresh()));
+      await interaction.editReply(refresh());
       return;
     }
     case 'drop': {
@@ -64,7 +67,7 @@ export async function handleThesisButton(interaction: ButtonInteraction, deps: T
         return;
       }
       theses.cancel(t.id, 'not logged');
-      await interaction.update(replacing(interaction.message, refresh()));
+      await interaction.update(refresh());
       return;
     }
     case 'with':
@@ -79,7 +82,7 @@ export async function handleThesisButton(interaction: ButtonInteraction, deps: T
       }[outcome];
       await interaction.reply({ flags: MessageFlags.Ephemeral, content: reply, components: outcome === 'ok' || outcome === 'switched' ? [pageRow(t.guildId)] : [] });
       if (outcome === 'ok' || outcome === 'switched') {
-        await interaction.message.edit(replacing(interaction.message, refresh())).catch((err) => log.warn(`Couldn't update thesis #${t.id}`, err));
+        await interaction.message.edit(refresh()).catch((err) => log.warn(`Couldn't update thesis #${t.id}`, err));
       }
       return;
     }
@@ -91,14 +94,15 @@ export async function handleThesisButton(interaction: ButtonInteraction, deps: T
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       const value = await deps.measure.now(t.spec, t.startAt ?? 0).catch(() => null);
       const holding = value === null ? null : held(t.spec, t.startValue ?? 0, value);
-      await interaction.editReply(progressText(t, now, value, holding));
+      const chart = value === null ? null : await deps.charts?.progress(t, value, now).catch(() => null);
+      await interaction.editReply({ content: progressText(t, now, value, holding), files: chart ? [{ attachment: chart.data, name: chart.name }] : [] });
       return;
     }
   }
 }
 
 /** Posts each check-back as a reply to its thesis card, and updates the card to its result. */
-export async function announceVerdicts(client: Client, theses: ThesisStore, verdicts: Verdict[]): Promise<void> {
+export async function announceVerdicts(client: Client, theses: ThesisStore, verdicts: Verdict[], charts?: Charts): Promise<void> {
   for (const v of verdicts) {
     const t = v.thesis;
     try {
@@ -107,9 +111,14 @@ export async function announceVerdicts(client: Client, theses: ThesisStore, verd
       const sides = theses.sides(t.id);
       if (t.messageId) {
         const message = await channel.messages.fetch(t.messageId).catch(() => null);
-        if (message) await message.edit(replacing(message, thesisCard(t, sides))).catch(() => {});
+        if (message) await message.edit(rebuilding(message, CHART_NAME, (chart) => thesisCard(t, sides, { chart }))).catch(() => {});
       }
-      await channel.send({ ...verdictPost(v, sides), ...(t.messageId ? { reply: { messageReference: t.messageId, failIfNotExists: false } } : {}) });
+      const chart = await charts?.progress(t, v.endValue, Date.now()).catch(() => null);
+      await channel.send({
+        ...verdictPost(v, sides, { chart: !!chart }),
+        files: chart ? [{ attachment: chart.data, name: chart.name }] : [],
+        ...(t.messageId ? { reply: { messageReference: t.messageId, failIfNotExists: false } } : {}),
+      });
     } catch (err) {
       log.warn(`Couldn't post the check-back for thesis #${t.id}`, err);
     }
@@ -124,7 +133,7 @@ export async function expireDrafts(client: Client, theses: ThesisStore, now: num
       const channel = await client.channels.fetch(t.channelId);
       if (!channel?.isTextBased()) continue;
       const message = await channel.messages.fetch(t.messageId);
-      await message.edit(replacing(message, thesisCard(theses.get(t.id)!, theses.sides(t.id))));
+      await message.edit(rebuilding(message, CHART_NAME, (chart) => thesisCard(theses.get(t.id)!, theses.sides(t.id), { chart })));
     } catch {
       // The message is gone or out of reach; the record is already updated.
     }

@@ -5,6 +5,8 @@ import { AlertWatcher } from './alerts/watcher.js';
 import { EvidenceBuilder } from './analysis/evidence.js';
 import { MarketHistory } from './analysis/history.js';
 import { BinanceFeed } from './calls/prices.js';
+import { Charts } from './charts/maker.js';
+import { ChartRenderer } from './charts/pool.js';
 import { loadConfig } from './config.js';
 import { openDb } from './db/index.js';
 import { DataDesk } from './desk/desk.js';
@@ -56,10 +58,12 @@ const crypto = new CryptoQuotes(feed);
 const stocks = new StockQuotes(desk);
 const history = new MarketHistory({ resolve: (asset) => crypto.resolve(asset), binance: feed });
 const evidence = new EvidenceBuilder({ history, desk });
+const renderer = new ChartRenderer();
+const charts = new Charts({ history, desk, renderer });
 const theses = new ThesisStore(db);
 const measure = new Measure({ history, crypto, stocks, desk });
 const settler = new ThesisSettler({ store: theses, measure });
-const take: TakeDeps = { llm, evidence, theses, spend };
+const take: TakeDeps = { llm, evidence, theses, spend, charts };
 
 const conversation = new Conversation({
   config,
@@ -76,6 +80,7 @@ const conversation = new Conversation({
     memory,
     myPage: (guildId, userId) => buildMyPage({ theses, measure, alerts, activity }, guildId, userId, Date.now()),
     quotes: { crypto, stocks },
+    charts,
   }),
   members,
   theses,
@@ -84,7 +89,7 @@ const conversation = new Conversation({
   metrics,
   replies: new ReplyIndex(db),
 });
-const commandDeps = { config, feed, members, theses, take, measure, desk, alerts, memory, activity, llm, metrics, spend };
+const commandDeps = { config, feed, members, theses, take, measure, desk, alerts, memory, activity, llm, metrics, spend, charts };
 
 let client: Client;
 let alertWatcher: AlertWatcher | null = null;
@@ -172,7 +177,7 @@ async function tick(): Promise<void> {
   const { settled, voided } = await settler.tick();
   for (const v of settled) log.info(`Thesis #${v.thesis.id} checked back: ${v.held ? 'aged well' : 'aged badly'}`);
   for (const t of voided) log.warn(`Thesis #${t.id} voided: no data at the check-back`);
-  await announceVerdicts(client, theses, settled);
+  await announceVerdicts(client, theses, settled, charts);
   await expireDrafts(client, theses, Date.now());
   await alertWatcher?.tick();
   void refreshTape().catch((err) => log.warn('Tape refresh failed', err));
@@ -224,6 +229,7 @@ async function reconnect(): Promise<void> {
 async function shutdown(signal: string): Promise<void> {
   log.info(`${signal} received, shutting down`);
   clearInterval(ticker);
+  renderer.close();
   await client.destroy();
   db.close();
   process.exit(0);

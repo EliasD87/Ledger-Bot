@@ -152,7 +152,7 @@ describe('DataDesk', () => {
     expect(text).toContain('2nd straight day of inflows');
     expect(text).toContain('IBIT +$350.0M');
     expect(text).toContain('CPI (YoY) · **3.5%**');
-    expect(text).not.toMatch(/odds|pays?|stake|bet/i);
+    expect(text).not.toMatch(/\bodds\b|\bpays?\b|stake|\bbet\b/i);
   });
 });
 

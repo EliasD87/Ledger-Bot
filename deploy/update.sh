@@ -31,6 +31,9 @@ cp -a "$NEW"/. "$HOME/app"/
 rm -rf "$NEW"
 
 export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+# Memory cap: the bot plus its chart helper, well inside this box's budget for Ledger.
+sed -i 's/^MemoryMax=.*/MemoryMax=1G/' ~/.config/systemd/user/ledger.service
+systemctl --user daemon-reload
 systemctl --user restart ledger
 sleep 15
 echo "----- last lines of ~/ledger.log -----"

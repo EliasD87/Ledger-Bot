@@ -60,6 +60,10 @@ Assets: any crypto with a USDT market (Binance, with OKX and Bybit as backups) a
 
 Only a background fetcher talks to SoSoValue (20 requests a minute, 100k a month). It refreshes ETF flows, macro, the market board, headlines and a batch of stock quotes on schedules, about 1,200 requests a day. Results are stored in the database, so restarts don't refetch, and the fetcher slows down past 80% of the month and stops at 96%. Chat and cards never call SoSoValue. Price history comes from Binance and Yahoo, cached.
 
+## Charts
+
+Ledger draws its own charts (no AI involved, no extra API calls): the year behind a take with its 50/200-day averages and the line it has to cross, daily ETF flow bars, a progress chart for *How's it doing?* (logged level, where it stands, the runway to the check-back), the same at the check-back, and a price or ratio chart for analysis questions. Same quiet palette as the cards. If a chart can't be drawn, the card goes out without it.
+
 ## Surfaces
 
 - **@Ledger \<a take\>**, or `/take`: a stress-test card with **Log it**.

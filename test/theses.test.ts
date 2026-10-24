@@ -22,6 +22,7 @@ const evidence: Evidence = {
   baseRate: null,
   analogs: null,
   sources: ['Binance'],
+  histories: [],
 };
 const argument = {
   for: [{ point: 'The ratio sits in the 12th percentile of its year: a lot of bad news is already in.', facts: ['F1'] }],
@@ -58,8 +59,8 @@ describe('thesis specs', () => {
   it('gives the model day counts instead of letting it count', () => {
     const text = dayCounts(NOW); // Saturday 24 Oct 2026
     expect(text).toContain('Days to this Sunday: 1.');
-    expect(text).toContain('To the end of this month: 8.');
-    expect(text).toContain('To Christmas: 63.');
+    expect(text).toContain('To the end of this month: 7.');
+    expect(text).toContain('To Christmas: 62.');
   });
 });
 

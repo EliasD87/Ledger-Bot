@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Evidence } from '../src/analysis/evidence.js';
 import { openDb } from '../src/db/index.js';
+import { cardCaption } from '../src/discord/text.js';
 import type { ChatMessage, ChatModel, CompleteOptions, ModelTurn } from '../src/llm/deepseek.js';
 import { Spend } from '../src/llm/guards.js';
 import { chatWithTools } from '../src/llm/toolLoop.js';
@@ -75,6 +76,7 @@ describe('ToolKit', () => {
     baseRate: null,
     analogs: null,
     sources: ['Binance'],
+    histories: [],
   };
   const argument = {
     for: [{ point: 'The ratio is in the 12th percentile of its year.', facts: ['F1'] }],
@@ -135,6 +137,15 @@ describe('ToolKit', () => {
     expect(theses.get(session.draft!.id)?.analysis.argument.lean).toBe('against');
     expect(spend.today()).toBeGreaterThan(0);
     expect(await run(session, 'stress_test', { take: 'eth is dead' })).toHaveProperty('error');
+    // The card carries the analysis: no second helping of data for the line above it.
+    expect(await run(session, 'analyze', { assets: ['SOL'] })).toHaveProperty('skipped');
+  });
+
+  it('keeps the line above a card to a short caption', () => {
+    expect(cardCaption('Braver than it sounds.\n\nSecond paragraph that repeats the card.')).toBe('Braver than it sounds.');
+    const long = `${'A sentence that goes on for a while. '.repeat(12)}`;
+    expect(cardCaption(long).length).toBeLessThanOrEqual(300);
+    expect(cardCaption(long).endsWith('.')).toBe(true);
   });
 
   it('hands small talk and vague takes back to the chat', async () => {

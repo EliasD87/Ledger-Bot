@@ -3,12 +3,13 @@ import type { FlowReport, MacroReport, MarketReport } from '../desk/desk.js';
 import type { Purchase } from '../desk/treasuries.js';
 import { dayLabel, discordTime, formatUsd, signedPct } from '../format.js';
 import type { NewsItem } from '../sosovalue.js';
-import { ACCENT, type CardPart, card, divider, heading, kicker } from './ui.js';
+import { CHART_NAME } from '../charts/maker.js';
+import { ACCENT, type CardPart, card, divider, heading, kicker, picture } from './ui.js';
 
 
 /* The tape cards (/tape): the number first, the detail under it, the source in small print. */
 
-export function flowsCard(r: FlowReport, buttons?: CardPart): ContainerBuilder {
+export function flowsCard(r: FlowReport, buttons?: CardPart, opts: { chart?: boolean } = {}): ContainerBuilder {
   const funds = r.funds.length <= 6 ? r.funds : [...r.funds.slice(0, 4), ...r.funds.slice(-2)];
   const totals = [
     r.latest.cumNetInflow !== null && `since launch ${formatUsd(r.latest.cumNetInflow, true)}`,
@@ -18,6 +19,7 @@ export function flowsCard(r: FlowReport, buttons?: CardPart): ContainerBuilder {
     kicker('📈 The tape · US spot ETF flows · SoSoValue'),
     heading(`${r.asset} ETFs · ${dayLabel(r.latest.date)}`),
     `**${formatUsd(r.latest.totalNetInflow!, true)}** net${r.streak.days >= 2 ? ` · ${streakLine(r)}` : ''}`,
+    opts.chart && picture(CHART_NAME, `${r.asset} spot ETF flows, last sessions`),
     funds.length > 0 && divider(),
     funds.length > 0 && funds.map((f) => `${f.ticker} ${formatUsd(f.netInflow, true)}`).join(' · '),
     r.days.length > 1 && kicker(`Last ${Math.min(5, r.days.length)}: ${r.days.slice(0, 5).map((d) => `${dayLabel(d.date).split(' ')[0]} ${formatUsd(d.totalNetInflow!, true)}`).join(' · ')}`),

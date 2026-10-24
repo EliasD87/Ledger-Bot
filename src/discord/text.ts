@@ -31,6 +31,15 @@ const DISCORD_LIMIT = 2000;
  * length limit. Also swaps the betting phrases the model still reaches for now and then ("long shot",
  * "pays for") with ones that mean the same thing. Denials like "Not betting" are left alone.
  */
+/** The line above a stress-test card: its first paragraph, at most ~300 characters, cut at a sentence end. */
+export function cardCaption(text: string): string {
+  const first = text.trim().split(/\n\s*\n/)[0]!.trim();
+  if (first.length <= 300) return first;
+  const cut = first.slice(0, 300);
+  const end = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('? '), cut.lastIndexOf('! '));
+  return end > 80 ? cut.slice(0, end + 1) : `${cut.slice(0, 299)}…`;
+}
+
 export function postableReply(text: string): string {
   const cleaned = text
     .replace(/^\s*\**ledger\**\s*:\s*/i, '')

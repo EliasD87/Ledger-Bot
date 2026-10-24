@@ -7,3 +7,4 @@ data/
 *.db-wal
 deploy/*.tar.gz
 deploy/*.db
+chart-preview/

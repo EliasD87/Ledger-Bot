@@ -42,7 +42,7 @@ WorkingDirectory=%h/app
 ExecStart=$(command -v node) --max-old-space-size=384 dist/index.js
 Restart=always
 RestartSec=10
-MemoryMax=512M
+MemoryMax=1G
 CPUQuota=100%
 StandardOutput=append:%h/ledger.log
 StandardError=append:%h/ledger.log

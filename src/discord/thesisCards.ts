@@ -4,7 +4,8 @@ import { type ThesisSpec, measureLabel } from '../theses/spec.js';
 import type { Record, Sides, Thesis, ThesisStatus } from '../theses/store.js';
 import type { Verdict } from '../theses/measure.js';
 import { myPageButton } from './pageCards.js';
-import { ACCENT, card, cards, divider, heading, kicker, row } from './ui.js';
+import { CHART_NAME } from '../charts/maker.js';
+import { ACCENT, card, cards, divider, heading, kicker, picture, row } from './ui.js';
 
 export type ThesisAction = 'log' | 'drop' | 'with' | 'against' | 'progress';
 
@@ -33,6 +34,9 @@ export function formatMeasure(spec: ThesisSpec, value: number): string {
   return formatPrice(value);
 }
 
+/** "31 Dec". */
+const shortDate = (ms: number) => new Date(ms).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+
 const pct = (x: number) => `${x >= 0 ? '+' : '−'}${Math.abs(x * 100).toFixed(1)}%`;
 
 function change(t: Thesis, end: number): string {
@@ -41,7 +45,7 @@ function change(t: Thesis, end: number): string {
 }
 
 /** The stress-test card, which becomes the thesis on the record once logged and shows its result once checked. */
-export function thesisContainer(t: Thesis, sides: Sides): ContainerBuilder {
+export function thesisContainer(t: Thesis, sides: Sides, opts: { chart?: boolean } = {}): ContainerBuilder {
   const a = t.analysis.argument;
   const status =
     t.status === 'draft'
@@ -82,6 +86,7 @@ export function thesisContainer(t: Thesis, sides: Sides): ContainerBuilder {
     heading(t.claim),
     kicker(`${take}${readAs}`),
     timeline,
+    opts.chart && picture(CHART_NAME, `Chart for ${t.claim}`),
     divider(),
     '**For**',
     ...a.for.map((p) => `· ${p.point}`),
@@ -97,18 +102,18 @@ export function thesisContainer(t: Thesis, sides: Sides): ContainerBuilder {
     buttons,
     kicker(
       t.status === 'draft'
-        ? `Log it to put it on the record and get a check-back ${t.spec.horizonDays === 1 ? 'tomorrow' : `in ${t.spec.horizonDays} days`} · data: ${t.analysis.sources.join(', ')}`
+        ? `Log it to put it on the record and get a check-back ${t.spec.horizonDays === 1 ? 'tomorrow' : `in ${t.spec.horizonDays} days, around ${shortDate(t.createdAt + t.spec.horizonDays * 86_400_000)}`} · data: ${t.analysis.sources.join(', ')}`
         : `Data: ${t.analysis.sources.join(', ')} · evidence, not a forecast`,
     ),
   ]);
 }
 
-export function thesisCard(t: Thesis, sides: Sides) {
-  return cards([thesisContainer(t, sides)]);
+export function thesisCard(t: Thesis, sides: Sides, opts: { chart?: boolean } = {}) {
+  return cards([thesisContainer(t, sides, opts)]);
 }
 
 /** The check-back, posted as a reply to the thesis card: how it aged and who read it right. Pings the author only. */
-export function verdictPost(v: Verdict, sides: Sides) {
+export function verdictPost(v: Verdict, sides: Sides, opts: { chart?: boolean } = {}) {
   const t = v.thesis;
   const right = v.held ? sides.with : sides.against;
   const missed = v.held ? sides.against : sides.with;
@@ -119,6 +124,7 @@ export function verdictPost(v: Verdict, sides: Sides) {
         kicker(`⚖️ Check-back · thesis #${t.id} · <@${t.authorId}>`),
         heading(`${t.claim} · ${v.held ? 'aged well ✓' : 'aged badly ✗'}`),
         `${measureLabel(t.spec)} ${change(t, v.endValue)}`,
+        opts.chart && picture(CHART_NAME, `How #${t.id} aged`),
         contrarian && `Contrarian win: ${sides.against.length} of ${sides.with.length + sides.against.length} were against.`,
         right.length > 0 && kicker(`Read it right: ${right.slice(0, 15).map((u) => `<@${u}>`).join(' ')}`),
         missed.length > 0 && kicker(`Missed: ${missed.slice(0, 15).map((u) => `<@${u}>`).join(' ')}`),

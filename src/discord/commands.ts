@@ -9,6 +9,7 @@ import {
 } from 'discord.js';
 import { type AlertDepsForCreate, type AlertRequest, createAlert, describeAlert } from '../alerts/service.js';
 import type { AlertStore } from '../alerts/store.js';
+import { CHART_NAME, type Charts } from '../charts/maker.js';
 import type { Config } from '../config.js';
 import { type Desk, ETF_ASSETS } from '../desk/desk.js';
 import { count } from '../format.js';
@@ -30,7 +31,7 @@ import { myPageButton } from './pageCards.js';
 import { postableReply } from './text.js';
 import { handleThesisButton } from './thesisButtons.js';
 import { boardContainer, recordContainer, thesisCard } from './thesisCards.js';
-import { ACCENT, card, cards, kicker, replyWithCards, row } from './ui.js';
+import { ACCENT, card, cards, kicker, rebuilding, replyWithCards, row } from './ui.js';
 import { handleWatchButton, watchButton } from './watchButtons.js';
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -144,6 +145,7 @@ export interface CommandDeps {
   llm: ChatModel;
   metrics: Metrics;
   spend: Spend;
+  charts?: Charts;
 }
 
 export async function handleInteraction(interaction: Interaction, deps: CommandDeps): Promise<void> {
@@ -206,7 +208,8 @@ async function take(interaction: ChatInputCommandInteraction<'cached'>, deps: Co
     );
     return;
   }
-  const message = await replyWithCards(interaction, thesisCard(result.thesis, { with: [], against: [] }));
+  const files = result.chart ? [{ attachment: result.chart.data, name: result.chart.name }] : [];
+  const message = await replyWithCards(interaction, { ...thesisCard(result.thesis, { with: [], against: [] }, { chart: files.length > 0 }), files });
   deps.theses.attachMessage(result.thesis.id, interaction.channelId, message.id);
 }
 
@@ -266,7 +269,7 @@ async function watch(interaction: ChatInputCommandInteraction<'cached'>, { alert
 }
 
 /** /tape: the stored market numbers as a public card, with a one-tap watch where one fits. */
-async function tape(interaction: ChatInputCommandInteraction<'cached'>, { desk }: CommandDeps): Promise<void> {
+async function tape(interaction: ChatInputCommandInteraction<'cached'>, { desk, charts }: CommandDeps): Promise<void> {
   if (!desk) {
     await interaction.reply({ flags: MessageFlags.Ephemeral, content: 'The tape needs a SoSoValue API key (SOSOVALUE_API_KEY).' });
     return;
@@ -277,11 +280,14 @@ async function tape(interaction: ChatInputCommandInteraction<'cached'>, { desk }
   try {
     const page = myPageButton(interaction.guildId);
     let tapeCard;
+    const files: { attachment: Buffer; name: string }[] = [];
     if (topic === 'flows') {
       const which = asset ?? 'BTC';
       const report = await desk.flows(which);
+      const chart = report ? await charts?.flows(report.asset).catch(() => null) : null;
+      if (chart) files.push({ attachment: chart.data, name: chart.name });
       tapeCard = report
-        ? flowsCard(report, row(watchButton({ kind: 'flows', asset: report.asset }), page))
+        ? flowsCard(report, row(watchButton({ kind: 'flows', asset: report.asset }), page), { chart: !!chart })
         : card(ACCENT.muted, [`No US spot ETF flow data for ${which} yet.`, kicker(`Try: ${ETF_ASSETS.join(', ')}`)]);
     } else if (topic === 'macro') {
       tapeCard = macroCard(await desk.macro(), row(page));
@@ -292,7 +298,7 @@ async function tape(interaction: ChatInputCommandInteraction<'cached'>, { desk }
     } else {
       tapeCard = marketCard(await desk.market(), row(page));
     }
-    await replyWithCards(interaction, cards([tapeCard]));
+    await replyWithCards(interaction, { ...cards([tapeCard]), files });
   } catch (err) {
     log.warn(`/tape ${topic} failed`, err);
     await interaction.editReply("Couldn't read the tape right now. Try again in a minute.");
@@ -397,7 +403,7 @@ async function voidThesis(interaction: ChatInputCommandInteraction<'cached'>, { 
   if (t.messageId) {
     const channel = await interaction.client.channels.fetch(t.channelId).catch(() => null);
     const message = channel?.isTextBased() ? await channel.messages.fetch(t.messageId).catch(() => null) : null;
-    await message?.edit(thesisCard(theses.get(id)!, theses.sides(id))).catch(() => {});
+    await message?.edit(rebuilding(message, CHART_NAME, (chart) => thesisCard(theses.get(id)!, theses.sides(id), { chart }))).catch(() => {});
   }
   await interaction.reply({ flags: MessageFlags.Ephemeral, content: `Thesis #${id} voided: ${reason}.` });
 }

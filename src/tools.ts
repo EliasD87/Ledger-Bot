@@ -1,6 +1,7 @@
 import { type AlertDepsForCreate, type AlertRequest, createAlert, describeAlert } from './alerts/service.js';
 import type { AlertStore } from './alerts/store.js';
 import type { EvidenceBuilder } from './analysis/evidence.js';
+import type { ChartFile, Charts } from './charts/maker.js';
 import type { BinanceFeed, CryptoStats } from './calls/prices.js';
 import { type Desk, ETF_ASSETS, leadingFund } from './desk/desk.js';
 import { buildRecap } from './desk/recap.js';
@@ -285,10 +286,15 @@ const PAGE_TOOLS: Tool[] = [
   },
 ];
 
+/** Data the stress-test card already shows, so it isn't fetched again for the line above the card. */
+const CARD_COVERS = new Set(['analyze', 'get_price', 'get_etf_flows', 'get_macro', 'get_news', 'get_market', 'get_recap', 'get_treasury_buys']);
+
 /** Tool calls for one reply. Remembers a stress test so the reply can carry its card. */
 export interface ToolSession {
   run(call: ToolCall): Promise<string>;
   readonly draft: Thesis | undefined;
+  /** Charts to attach to the reply: the stress test's (for its card) or an analysis chart. */
+  readonly charts: ChartFile[];
 }
 
 export interface ToolKitDeps {
@@ -307,6 +313,8 @@ export interface ToolKitDeps {
   myPage?: (guildId: string, userId: string) => Promise<MyPage>;
   /** Live quotes for get_price. */
   quotes?: MarketQuotes;
+  /** Draws charts for analysis replies. */
+  charts?: Charts;
   now?: () => number;
 }
 
@@ -330,6 +338,7 @@ export class ToolKit {
     const { members, theses, take, evidence, measure, feed, desk, alerts, memory, myPage, quotes } = this.deps;
     const now = this.deps.now ?? Date.now;
     let draft: Thesis | undefined;
+    const charts: ChartFile[] = [];
 
     const handlers: Record<string, (args: Record<string, unknown>) => Promise<unknown> | unknown> = {
       ...(quotes ? { get_price: (args) => priceForModel(quotes, args) } : {}),
@@ -350,13 +359,15 @@ export class ToolKit {
               : { error: result.message };
         }
         draft = result.thesis;
+        charts.splice(0, charts.length, ...(result.chart ? [result.chart] : []));
         const a = draft.analysis.argument;
         return {
           card: `Stress test drafted for: ${draft.claim}`,
           read_as: draft.analysis.assumptions,
+          checks_back_if_logged_now: utcLabel(now() + draft.spec.horizonDays * 86_400_000),
           lean: a.lean,
           verdict: a.verdict,
-          note: 'The card with the full analysis and a "Log it" button is attached under your reply. Write one short, lively line (no numbers, no repeating the card); invite them to log it if they stand by it.',
+          note: 'The card with the full analysis and a "Log it" button is attached under your reply. Your whole reply is ONE or two short sentences (under 35 words): react to the verdict in your voice, no numbers, no repeating the card, no other tools. Invite them to log it if they stand by it. If you mention timing, use checks_back_if_logged_now.',
         };
       },
       analyze: async (args) => {
@@ -364,6 +375,9 @@ export class ToolKit {
         if (!assets.length) return { error: 'Which asset?' };
         const e = await evidence.forAssets(assets);
         if ('error' in e) return { error: e.error };
+        // One chart per reply: a later analysis replaces the earlier one.
+        const chart = await this.deps.charts?.forAssets(e.histories).catch(() => null);
+        if (chart && !draft) charts.splice(0, charts.length, chart);
         return { facts: e.facts.map((f) => f.text), sources: e.sources.join(', '), note: 'Reason from these facts; quote numbers exactly; no price predictions.' };
       },
       get_thesis: async (args) => {
@@ -413,9 +427,14 @@ export class ToolKit {
       get draft() {
         return draft;
       },
+      charts,
       async run(call) {
         const handler = handlers[call.name];
         if (!handler) return JSON.stringify({ error: `Unknown tool ${call.name}` });
+        // Once the card exists it carries the analysis; more data here only turns the caption into a second card.
+        if (draft && CARD_COVERS.has(call.name)) {
+          return JSON.stringify({ skipped: 'The stress-test card under your reply already covers this. Write your one short line now.' });
+        }
         let args: Record<string, unknown>;
         try {
           args = JSON.parse(call.arguments || '{}') as Record<string, unknown>;

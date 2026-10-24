@@ -9,7 +9,7 @@ import type { Metrics, ReplyIndex } from '../metrics.js';
 import { LINES, PERSONA, PERSONA_EXAMPLES, contextLine } from '../persona.js';
 import type { ThesisStore } from '../theses/store.js';
 import type { ToolKit } from '../tools.js';
-import { postableReply, readableContent, roleMentionIds } from './text.js';
+import { cardCaption, postableReply, readableContent, roleMentionIds } from './text.js';
 import { thesisContainer } from './thesisCards.js';
 import { type ThreadMessage, collectChain, toChatMessages } from './thread.js';
 import { cards, say } from './ui.js';
@@ -108,8 +108,14 @@ export class Conversation {
     }
 
     // A take stress-tested during this reply rides along as its card (with Log it), under the text.
+    // Charts ride along as files: inside the card for a stress test, under the text for an analysis.
     const { draft } = session;
-    const sent = await message.reply(draft ? cards([say(text), thesisContainer(draft, { with: [], against: [] })], { replyPing: true }) : text);
+    const files = session.charts.map((c) => ({ attachment: c.data, name: c.name }));
+    const sent = await message.reply(
+      draft
+        ? { ...cards([say(cardCaption(text)), thesisContainer(draft, { with: [], against: [] }, { chart: files.length > 0 })], { replyPing: true }), files }
+        : { content: text, files },
+    );
     if (draft) theses.attachMessage(draft.id, message.channelId, sent.id);
     this.deps.replies.remember(sent.id, rootId, message.channelId);
     metrics.record({
