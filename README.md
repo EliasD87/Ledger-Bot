@@ -110,7 +110,39 @@ scripts/chat-eval.ts, scripts/chat-scenarios.json   chat regression run
 test/
 ```
 
-## Deploying to the shared VPS (later)
+## Running on the shared VPS
+
+Ledger runs 24/7 on the shared VPS as the Linux user `ledger` (replace `<server-ip>` below with its address; it is kept out of this public repo):
+
+- App in `/home/ledger/app`, database in `data/ledger.db`, log in `~/ledger.log`.
+- Node 24 is installed via nvm in that user's home.
+- It runs as the systemd user service `ledger` (512 MB memory cap, one core, restarts on crash and reboot).
+- Everything is done from the laptop in PowerShell. `deploy/setup.sh` and `deploy/start.sh` do the server-side work as root, including switching to `ledger`.
+
+**Shipping an update.** On the laptop, pack a bundle in Git Bash. It holds the committed code, `.env` and the deploy scripts; `deploy/*.tar.gz` is git-ignored because it contains keys:
+
+```bash
+mkdir -p /tmp/lb/deploy && git archive --format=tar.gz -o /tmp/lb/code.tar.gz HEAD && cp .env /tmp/lb/ && cp deploy/*.sh /tmp/lb/deploy/ && tar -czf deploy/ledger-bundle.tar.gz -C /tmp/lb code.tar.gz .env deploy && rm -rf /tmp/lb
+```
+
+Then in PowerShell:
+
+```powershell
+scp deploy\ledger-bundle.tar.gz root@<server-ip>:/root/
+```
+```powershell
+ssh root@<server-ip> "mkdir -p /root/ledger-upload && tar -xzf /root/ledger-bundle.tar.gz -C /root/ledger-upload && bash /root/ledger-upload/deploy/setup.sh && rm -rf /root/ledger-upload /root/ledger-bundle.tar.gz"
+```
+
+`setup.sh` rebuilds, runs `npm run check` and restarts Ledger. Never run `npm run dev` on the laptop while the server copy is up: both would answer every message.
+
+**Status and logs:**
+
+```powershell
+ssh root@<server-ip> "tail -n 50 /home/ledger/ledger.log"
+```
+
+### The host's rules
 
 These are the host's rules, which the deploy has to follow:
 
@@ -119,6 +151,6 @@ These are the host's rules, which the deploy has to follow:
 - Run it as a systemd *user* service with resource limits, e.g. `MemoryMax=512M` and `CPUQuota=100%`.
 - Never touch the trading bots, the SoDEX collector/publisher, or anything system-wide.
 
-User services need "lingering" for that user. That is a one-time `loginctl enable-linger <user>`, which the server admin has to run.
+User services need "lingering" for that user (`loginctl enable-linger ledger`, already done by `setup.sh`).
 
 Expected footprint: about 100–200 MB of RAM, a small fraction of one core, and a few MB of disk.
