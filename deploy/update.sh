@@ -12,7 +12,10 @@ set -euo pipefail
 NEW="$HOME/app.new"
 rm -rf "$NEW"
 mkdir -p "$NEW"
-curl -fsSL https://github.com/EliasD87/Ledger-Bot/archive/refs/heads/main.tar.gz | tar -xz -C "$NEW" --strip-components=1
+# Ask the API for the newest commit and download exactly that: branch URLs can be served stale from a cache.
+SHA=$(curl -fsSL -H 'Accept: application/vnd.github.sha' https://api.github.com/repos/EliasD87/Ledger-Bot/commits/main || echo main)
+echo "Building Ledger at ${SHA:0:7}"
+curl -fsSL "https://github.com/EliasD87/Ledger-Bot/archive/$SHA.tar.gz" | tar -xz -C "$NEW" --strip-components=1
 cd "$NEW"
 npm ci --no-audit --no-fund --loglevel=error
 if ! npm run build --silent; then
