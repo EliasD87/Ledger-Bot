@@ -52,6 +52,48 @@ export function thesisChart(spec: ThesisSpec, histories: History[]): string {
   });
 }
 
+export interface WindowSeries {
+  label: string;
+  /** Oldest first. */
+  points: Point[];
+  source: string;
+}
+
+/**
+ * Any window, on request ("the 7-day", "last 3 months"): the price, or the ratio of two assets. Long
+ * windows also show the 50- and 200-day averages when there's history for them.
+ */
+export function windowChart(series: WindowSeries, days: number, daily?: { closes: Close[] }): string {
+  const last = series.points.at(-1)?.v ?? 0;
+  const first = series.points[0]?.v ?? last;
+  const format = axisFormat(last);
+  const change = first ? last / first - 1 : 0;
+  // A shorter history than asked for (a new listing) is labelled by its start, not the window.
+  const t0 = series.points[0]?.t ?? 0;
+  const spanDays = ((series.points.at(-1)?.t ?? t0) - t0) / DAY;
+  const window = spanDays < days - 3 && days >= 30 ? `since ${shortDate(t0)}` : windowLabel(days);
+  const lines: Line[] =
+    daily && days >= 90
+      ? withAverages(daily.closes, series.points.length, series.label.includes('/') ? 'ratio' : 'price')
+      : [{ points: series.points, color: INK.main, width: 2.2, fill: true }];
+  return lineChart({
+    title: series.label.includes('/') ? series.label.replace('/', ' vs ') : series.label,
+    subtitle: `${series.label.includes('/') ? `${series.label} ratio` : 'price'} · ${window} · now ${format(last)} (${change >= 0 ? '+' : '−'}${Math.abs(change * 100).toFixed(1)}%)`,
+    lines,
+    format,
+    note: series.source,
+  });
+}
+
+export function windowLabel(days: number): string {
+  if (days <= 1) return 'last 24 hours';
+  if (days === 7) return 'last 7 days';
+  if (days % 365 === 0) return days === 365 ? 'last year' : `last ${days / 365} years`;
+  if (days >= 28 && days <= 31) return 'last month';
+  if (days % 30 === 0) return `last ${days / 30} months`;
+  return `last ${days} days`;
+}
+
 /** One asset with its averages, or two as a ratio: for analysis replies. */
 export function assetsChart(histories: History[]): string {
   if (histories.length >= 2) {

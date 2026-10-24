@@ -15,8 +15,8 @@ export class Measure {
   ) {}
 
   /** The latest price of a crypto or stock ticker, or null. */
-  async price(symbol: string): Promise<number | null> {
-    const asset = await this.deps.history.identify(symbol);
+  async price(symbol: string, kind?: 'crypto' | 'stock'): Promise<number | null> {
+    const asset = await this.deps.history.identify(symbol, kind);
     if (!asset) return null;
     const value =
       asset.kind === 'crypto'
@@ -29,10 +29,10 @@ export class Measure {
   /** The measure now: price, ratio, or, for flows, net flows over the sessions since `since`. */
   async now(spec: ThesisSpec, since = 0): Promise<number | null> {
     if (spec.kind === 'flows') return (await this.flows(spec.asset, since, Infinity))?.sum ?? null;
-    const a = await this.price(spec.asset);
+    const a = await this.price(spec.asset, spec.assetKind);
     if (a === null) return null;
     if (spec.kind !== 'relative') return a;
-    const b = await this.price(spec.versus!);
+    const b = await this.price(spec.versus!, spec.versusKind);
     return b ? a / b : null;
   }
 

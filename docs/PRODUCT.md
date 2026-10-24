@@ -62,7 +62,7 @@ Only a background fetcher talks to SoSoValue (20 requests a minute, 100k a month
 
 ## Charts
 
-Ledger draws its own charts (no AI involved, no extra API calls): the year behind a take with its 50/200-day averages and the line it has to cross, daily ETF flow bars, a progress chart for *How's it doing?* (logged level, where it stands, the runway to the check-back), the same at the check-back, and a price or ratio chart for analysis questions. Same quiet palette as the cards. If a chart can't be drawn, the card goes out without it.
+Ledger draws its own charts (no AI involved, no extra API calls): the year behind a take with its 50/200-day averages and the line it has to cross, daily ETF flow bars, a progress chart for *How's it doing?* (logged level, where it stands, the runway to the check-back), the same at the check-back, and a price or ratio chart for analysis questions. Members can also just ask: "pull up the 7-day", "chart SOL vs ETH this month", "how has SPCX moved since it listed" (hourly prices for windows under a month). Names work as well as tickers (nvidia, spacex, ripple, ton → GRAM). Same quiet palette as the cards. If a chart can't be drawn, the card goes out without it.
 
 ## Surfaces
 

@@ -98,6 +98,7 @@ src/
   llm/
     deepseek.ts         DeepSeek client + cost accounting
     toolLoop.ts         model ↔ tools loop
+    inlineCalls.ts      tool calls DeepSeek writes as text: run them, never post the markup
     replyCheck.ts       checks each reply against its tool results; one redo for invented figures, undone actions or betting words
     guards.ts           daily spend, optional per-user rate limits
   pages/myPage.ts       builds your page (since your last look)

@@ -37,7 +37,17 @@ export async function chatWithTools(model: ChatModel, messages: ChatMessage[], o
       toolChoice: lastRound ? 'none' : 'auto',
     });
     opts.onUsage(turn.usage);
-    if (turn.toolCalls.length === 0 || lastRound) return { text: turn.text, toolsUsed, toolResults, transcript };
+    if (turn.toolCalls.length === 0 || lastRound) {
+      if (turn.text) return { text: turn.text, toolsUsed, toolResults, transcript };
+      // Nothing left once tool-call markup is taken out: ask once more for the answer itself.
+      const retry = await model.complete([...transcript, { role: 'system', content: 'Write your reply to the member now, in plain text, from the tool results above.' }], {
+        maxTokens: opts.maxTokens,
+        tools: opts.tools,
+        toolChoice: 'none',
+      });
+      opts.onUsage(retry.usage);
+      return { text: retry.text, toolsUsed, toolResults, transcript };
+    }
 
     transcript.push({
       role: 'assistant',

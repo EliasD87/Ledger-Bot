@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import type { Prices } from '../config.js';
+import { extractInlineCalls } from './inlineCalls.js';
 
 export type ChatMessage = OpenAI.Chat.ChatCompletionMessageParam;
 export type Tool = OpenAI.Chat.ChatCompletionFunctionTool;
@@ -81,11 +82,16 @@ export class DeepSeek implements ChatModel {
     } as OpenAI.Chat.ChatCompletionCreateParamsNonStreaming;
     const res = await this.client.chat.completions.create(params);
     const message = res.choices[0]?.message;
+    const native = (message?.tool_calls ?? []).flatMap((call) =>
+      call.type === 'function' ? [{ id: call.id, name: call.function.name, arguments: call.function.arguments }] : [],
+    );
+    // Tool calls written into the text instead of made: run them if tools are allowed this round, and never
+    // let the markup reach a reply.
+    const inline = extractInlineCalls(message?.content?.trim() ?? '');
+    const toolsAllowed = Boolean(opts.tools?.length) && opts.toolChoice !== 'none';
     return {
-      text: message?.content?.trim() ?? '',
-      toolCalls: (message?.tool_calls ?? []).flatMap((call) =>
-        call.type === 'function' ? [{ id: call.id, name: call.function.name, arguments: call.function.arguments }] : [],
-      ),
+      text: inline.text,
+      toolCalls: native.length ? native : toolsAllowed ? inline.calls : [],
       usage: costOf(res.usage as DeepSeekUsage | undefined, this.opts.prices),
     };
   }

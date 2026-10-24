@@ -80,7 +80,7 @@ export function lineChart(c: LineChart): string {
     parts.push(`<line x1="${PAD.left}" x2="${WIDTH - PAD.right}" y1="${f(y(v))}" y2="${f(y(v))}" stroke="${INK.grid}" stroke-width="1"/>`);
     if (Math.abs(y(v) - tagY) > 16) parts.push(text(WIDTH - PAD.right + 8, y(v) + 4, c.format(v), { size: 11, color: INK.axis }));
   }
-  for (const m of monthTicks(t0, t1)) {
+  for (const m of timeTicks(t0, t1)) {
     parts.push(text(x(m.t), HEIGHT - 12, m.label, { size: 11, color: INK.axis, anchor: 'middle' }));
   }
   for (const m of c.marks ?? []) {
@@ -256,6 +256,22 @@ export function ticks(lo: number, hi: number): number[] {
   const step = niceStep((hi - lo) / 4);
   const out: number[] = [];
   for (let v = Math.ceil(lo / step) * step; v <= hi + step * 1e-9; v += step) out.push(Math.abs(v) < step * 1e-9 ? 0 : v);
+  return out;
+}
+
+/** Axis labels that suit the span: days (and hours) for short windows, months for long ones. */
+function timeTicks(t0: number, t1: number): { t: number; label: string }[] {
+  const days = (t1 - t0) / 86_400_000;
+  if (days > 50) return monthTicks(t0, t1);
+  const step = days <= 2 ? 0.25 : days <= 8 ? 1 : days <= 16 ? 2 : days <= 32 ? 5 : 7;
+  const out: { t: number; label: string }[] = [];
+  const first = Math.ceil(t0 / (step * 86_400_000)) * step * 86_400_000;
+  for (let t = first; t <= t1; t += step * 86_400_000) {
+    const share = (t - t0) / (t1 - t0);
+    if (share < 0.04 || share > 0.96) continue;
+    const d = new Date(t);
+    out.push({ t, label: step < 1 ? `${String(d.getUTCHours()).padStart(2, '0')}:00` : `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}` });
+  }
   return out;
 }
 

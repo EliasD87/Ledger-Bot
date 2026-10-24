@@ -49,10 +49,20 @@ export async function stressTest(deps: Deps, take: string, author: string): Prom
   const now = (deps.now ?? Date.now)();
   const parsed = await understand(deps, take, now);
   if (!parsed.ok) return parsed;
-  const { spec, assumptions } = parsed;
+  const { assumptions } = parsed;
 
-  const evidence = await deps.evidence.forThesis(spec);
+  const evidence = await deps.evidence.forThesis(parsed.spec);
   if ('error' in evidence) return { ok: false, reason: 'no-data', message: evidence.error };
+  const [first, second] = evidence.histories;
+  const spec: ThesisSpec =
+    parsed.spec.kind === 'flows' || !first
+      ? parsed.spec
+      : {
+          ...parsed.spec,
+          asset: first.asset.symbol,
+          assetKind: first.asset.kind,
+          ...(parsed.spec.kind === 'relative' && second ? { versus: second.asset.symbol, versusKind: second.asset.kind } : {}),
+        };
 
   const claim = claimText(spec);
   const argument = await argue(deps, { take, author, claim, assumptions, evidence });
@@ -70,7 +80,7 @@ Kinds:
 - relative: one asset beats (up) or trails (down) another, optionally by at least pct. {"kind":"relative","asset":"SOL","versus":"ETH","direction":"up","horizonDays":30}
 - flows: US spot ETFs for an asset see net inflows (up) or outflows (down) over the horizon. Only for: ${ETF_ASSETS.join(', ')}. {"kind":"flows","asset":"BTC","direction":"up","horizonDays":7}
 
-Assets are tickers: crypto (BTC, ETH, SOL, PEPE...) or US stocks and ETFs (NVDA, MSTR, COIN, SPY...). "bitcoin" is BTC, "microstrategy"/"strategy" is MSTR, "the nasdaq" is QQQ.
+Assets are tickers: crypto (BTC, ETH, SOL, PEPE...) or US stocks and ETFs (NVDA, MSTR, COIN, SPY...). "bitcoin" is BTC, "microstrategy"/"strategy" is MSTR, "the nasdaq" is QQQ. If you aren't sure of a ticker (new listings, smaller names), write the name as the member did ("spacex"); it gets looked up.
 Horizon in days from now (1 to 365): use the day counts given with the take, never count yourself. "this week" = days to this Sunday, or to next Sunday when that is under 3. "next week" = days to next Sunday. "this month" = days to month end (at least 7). "next month" = days to the end of next month. "this cycle", "long term" = 180. No timeframe = 30. Put any guess in assumptions.
 Vague takes ("SOL is the future", "ETH is dead", "MSTR is a scam") still get the closest checkable version: usually relative against the natural benchmark (alts vs ETH or BTC, crypto stocks vs BTC, stocks vs QQQ) or a move. Say what you chose in assumptions.
 Conditional takes ("if X happens, Y"): test Y only, and add the assumption "judged on Y alone, the 'if' isn't checked" in your own short words.

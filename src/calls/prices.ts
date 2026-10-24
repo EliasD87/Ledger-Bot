@@ -20,8 +20,11 @@ export interface CryptoStats {
 
 const HOUR = 60 * 60 * 1000;
 
-/** Common names people type instead of tickers. */
-const ALIASES: Record<string, string> = { BITCOIN: 'BTC', XBT: 'BTC', ETHEREUM: 'ETH', SOLANA: 'SOL' };
+/** Common names people type instead of tickers, where a name search goes wrong (renames like TON → GRAM, coin names). Others are looked up. */
+const ALIASES: Record<string, string> = {
+  BITCOIN: 'BTC', XBT: 'BTC', ETHEREUM: 'ETH', SOLANA: 'SOL', RIPPLE: 'XRP', CARDANO: 'ADA', POLKADOT: 'DOT', AVALANCHE: 'AVAX',
+  CHAINLINK: 'LINK', LITECOIN: 'LTC', TON: 'GRAM', TONCOIN: 'GRAM', SHIBA: 'SHIB', DOGE: 'DOGE', MICROSTRATEGY: 'MSTR', SAYLOR: 'MSTR',
+};
 
 /** Turns "$btc", "eth/usdt" or "Solana" into a base ticker like "BTC", or null if it can't be one. */
 export function normalizeAsset(input: string): string | null {

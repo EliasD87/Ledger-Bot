@@ -125,7 +125,7 @@ for (const s of scenarios) {
     alerts,
     memory: fakeMemory(s),
     myPage: (g, u) => buildMyPage({ theses, measure, alerts, activity }, g, u, Date.now()),
-    quotes: { crypto, stocks },
+    quotes: { crypto, stocks, identify: (raw, kind) => history.identify(raw, kind) },
     charts,
   });
   const thread: ThreadMessage[] = [];
@@ -187,7 +187,7 @@ for (const s of scenarios) {
           history: d.analysis.argument.history,
         }
       : null;
-    turns.push({ from: turn.from, text: turn.text, reply, tools: traces, draft, ...(corrected.length ? { corrected } : {}), ms: Date.now() - started, costUsd: Number(cost.toFixed(5)) });
+    turns.push({ from: turn.from, text: turn.text, reply, tools: traces, draft, charts: session.charts.length, ...(corrected.length ? { corrected } : {}), ms: Date.now() - started, costUsd: Number(cost.toFixed(5)) });
     // In Discord the card rides under the reply, and the chain reads it back as one bracketed line.
     thread.push({ authorName: 'Ledger', fromSelf: true, content: d ? `${reply}\n[card attached: ⚖️ Stress test · thesis #${d.id} · ${d.claim} · lean ${d.analysis.argument.lean}: ${d.analysis.argument.verdict}]` : reply });
     console.log(`${s.id} · ${turn.from}: ${turn.text.slice(0, 60)}\n  → [${traces.map((t) => t.name).join(', ') || 'no tools'}]${corrected.length ? ' (redone)' : ''} ${reply.replace(/\n/g, ' ⏎ ').slice(0, 200)}`);

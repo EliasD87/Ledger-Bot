@@ -1,7 +1,7 @@
 import { leadingFund, type Desk, ETF_ASSETS } from '../desk/desk.js';
 import { formatPrice, formatUsd } from '../format.js';
 import { type ThesisSpec, measureLabel, neededChange } from '../theses/spec.js';
-import type { History, MarketHistory } from './history.js';
+import type { AssetKind, History, MarketHistory } from './history.js';
 import {
   type Analogs,
   type BaseRate,
@@ -70,7 +70,7 @@ export class EvidenceBuilder {
 
   /** Evidence for a specific take, including how often what it needs has happened before. */
   async forThesis(spec: ThesisSpec): Promise<Evidence | { error: string }> {
-    const histories = await this.load(spec.kind === 'relative' ? [spec.asset, spec.versus!] : [spec.asset]);
+    const histories = await this.load(spec.kind === 'relative' ? [spec.asset, spec.versus!] : [spec.asset], [spec.assetKind, spec.versusKind]);
     if ('error' in histories) return histories;
     const facts = new FactList();
     for (const h of histories) this.assetFacts(facts, h);
@@ -114,10 +114,10 @@ export class EvidenceBuilder {
     return { facts: facts.all, start, measure: measureLabel(spec), baseRate: rate, analogs: similar, sources: sourcesOf(histories, facts), histories };
   }
 
-  private async load(symbols: string[]): Promise<History[] | { error: string }> {
+  private async load(symbols: string[], kinds: (AssetKind | undefined)[] = []): Promise<History[] | { error: string }> {
     const out: History[] = [];
-    for (const symbol of symbols) {
-      const asset = await this.deps.history.identify(symbol);
+    for (const [i, symbol] of symbols.entries()) {
+      const asset = await this.deps.history.identify(symbol, kinds[i]);
       const history = asset && (await this.deps.history.daily(asset));
       if (!history) return { error: `No price history found for ${symbol}.` };
       out.push(history);

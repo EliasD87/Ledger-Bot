@@ -18,6 +18,29 @@ import type { Thesis, ThesisStore } from './theses/store.js';
 
 const HOUR = 60 * 60 * 1000;
 
+/** Charts on request. */
+const CHART_TOOLS: Tool[] = [
+  {
+    type: 'function',
+    function: {
+      name: 'show_chart',
+      description:
+        'Attaches a price chart (one asset) or a ratio chart (two assets) over a window, and returns the numbers it shows (start, now, change, high, low). ' +
+        'Use it whenever someone asks to see, pull up or show a chart, the "7-day", "last month", "since it listed", or "how has X moved", and for "how\'s X looking" alongside your read. ' +
+        'Works for crypto and US stocks; names are fine ("nvidia", "spacex").',
+      parameters: {
+        type: 'object',
+        properties: {
+          assets: { type: 'array', items: { type: 'string' }, description: 'One ticker or name, or two for a ratio, e.g. ["SOL", "ETH"]' },
+          days: { type: 'number', description: 'Window in days: 1 = 24h, 7, 30, 90, 365 (default), up to 1825' },
+        },
+        required: ['assets'],
+        additionalProperties: false,
+      },
+    },
+  },
+];
+
 /** The heart of Ledger: takes, stress tests, theses and records. */
 const TAKE_TOOLS: Tool[] = [
   {
@@ -115,6 +138,8 @@ const PRICE_TOOLS: Tool[] = [
 export interface MarketQuotes {
   crypto: Pick<BinanceFeed, 'resolve' | 'stats24h'>;
   stocks: { stockQuotes(tickers: string[]): Promise<Record<string, StockQuote & { source?: string }>> } | null;
+  /** Turns names and unknown tickers ("nvidia", "spacex") into tickers; see MarketHistory.identify. */
+  identify?: (raw: string, kind?: 'crypto' | 'stock') => Promise<{ symbol: string; kind: 'crypto' | 'stock'; pair?: string } | null>;
 }
 
 
@@ -326,6 +351,7 @@ export class ToolKit {
     const { desk, alerts, memory, myPage, quotes } = this.deps;
     return [
       ...TAKE_TOOLS,
+      ...(this.deps.charts ? CHART_TOOLS : []),
       ...(quotes ? PRICE_TOOLS : []),
       ...(desk ? DESK_TOOLS : []),
       ...(alerts ? ALERT_TOOLS : []),
@@ -370,14 +396,25 @@ export class ToolKit {
           note: 'The card with the full analysis and a "Log it" button is attached under your reply. Your whole reply is ONE or two short sentences (under 35 words): react to the verdict in your voice, no numbers, no repeating the card, no other tools. Invite them to log it if they stand by it. If you mention timing, use checks_back_if_logged_now.',
         };
       },
+      show_chart: async (args) => {
+        const assets = Array.isArray(args.assets) ? args.assets.map(String).filter(Boolean).slice(0, 2) : [];
+        if (!assets.length) return { error: 'Which asset?' };
+        if (draft) return { skipped: 'The stress-test card already has its chart.' };
+        const result = await this.deps.charts!.window(assets, typeof args.days === 'number' ? args.days : 365);
+        if ('error' in result) return { error: result.error };
+        charts.splice(0, charts.length, result.chart);
+        return { attached: 'The chart is attached under your reply. Talk about what it shows in a line or two; quote these numbers exactly.', ...result.summary };
+      },
       analyze: async (args) => {
         const assets = Array.isArray(args.assets) ? args.assets.map(String).filter(Boolean).slice(0, 2) : [];
         if (!assets.length) return { error: 'Which asset?' };
         const e = await evidence.forAssets(assets);
         if ('error' in e) return { error: e.error };
-        // One chart per reply: a later analysis replaces the earlier one.
-        const chart = await this.deps.charts?.forAssets(e.histories).catch(() => null);
-        if (chart && !draft) charts.splice(0, charts.length, chart);
+        // One chart per reply; a chart asked for with show_chart (its own window) stays.
+        if (!draft && !charts.length) {
+          const chart = await this.deps.charts?.forAssets(e.histories).catch(() => null);
+          if (chart) charts.push(chart);
+        }
         return { facts: e.facts.map((f) => f.text), sources: e.sources.join(', '), note: 'Reason from these facts; quote numbers exactly; no price predictions.' };
       },
       get_thesis: async (args) => {
@@ -507,16 +544,27 @@ export interface ToolContext {
 
 async function priceForModel(quotes: MarketQuotes, args: Record<string, unknown>) {
   const wanted = Array.isArray(args.symbols) ? args.symbols.filter((s): s is string => typeof s === 'string') : [];
-  const symbols = [...new Set(wanted.map((s) => s.trim().replace(/^\$/, '').toUpperCase()).filter(Boolean))].slice(0, 10);
-  if (!symbols.length) return { error: 'Which ticker? e.g. BTC, ETH, NVDA.' };
+  const asked = [...new Set(wanted.map((s) => s.trim().replace(/^\$/, '')).filter(Boolean))].slice(0, 10);
+  if (!asked.length) return { error: 'Which ticker? e.g. BTC, ETH, NVDA.' };
   const market = args.market === 'crypto' || args.market === 'stock' ? args.market : 'auto';
 
   const crypto = new Map<string, string>(); // ticker → Binance symbol
-  if (market !== 'stock') {
-    for (const s of symbols) {
-      const pair = await quotes.crypto.resolve(s).catch(() => null);
-      if (pair) crypto.set(s, pair);
+  const symbols: string[] = [];
+  const askedAs = new Map<string, string>(); // ticker → the name it was asked by, when they differ
+  for (const raw of asked) {
+    let ticker = raw.toUpperCase();
+    if (quotes.identify) {
+      const found = await quotes.identify(raw, market === 'auto' ? undefined : market).catch(() => null);
+      if (found) {
+        ticker = found.symbol;
+        if (found.kind === 'crypto' && found.pair) crypto.set(ticker, found.pair);
+      }
+    } else if (market !== 'stock') {
+      const pair = await quotes.crypto.resolve(ticker).catch(() => null);
+      if (pair) crypto.set(ticker, pair);
     }
+    if (ticker !== raw.toUpperCase()) askedAs.set(ticker, raw);
+    if (!symbols.includes(ticker)) symbols.push(ticker);
   }
   const stockTickers = market === 'crypto' ? [] : symbols.filter((s) => !crypto.has(s));
   const [cryptoStats, stockQuotes] = await Promise.all([
@@ -534,6 +582,7 @@ async function priceForModel(quotes: MarketQuotes, args: Record<string, unknown>
     if (c) {
       prices.push({
         ticker: s,
+        ...(askedAs.has(s) ? { asked_as: askedAs.get(s) } : {}),
         market: 'crypto',
         price: formatPrice(c.price),
         change_24h: signedPct(c.change),
@@ -544,6 +593,7 @@ async function priceForModel(quotes: MarketQuotes, args: Record<string, unknown>
     } else if (q) {
       prices.push({
         ticker: s,
+        ...(askedAs.has(s) ? { asked_as: askedAs.get(s) } : {}),
         market: 'US stock',
         price: `$${formatPrice(q.last)}`,
         change_today: q.changePct !== null ? signedPct(q.changePct / 100) : null,

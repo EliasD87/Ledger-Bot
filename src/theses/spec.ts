@@ -17,6 +17,9 @@ export interface ThesisSpec {
   pct?: number;
   /** 1 to 365. */
   horizonDays: number;
+  /** Whether `asset` / `versus` are crypto or stocks, once looked up (tickers like AI exist as both). */
+  assetKind?: 'crypto' | 'stock';
+  versusKind?: 'crypto' | 'stock';
 }
 
 export const MIN_DAYS = 1;

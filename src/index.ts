@@ -79,7 +79,7 @@ const conversation = new Conversation({
     alerts,
     memory,
     myPage: (guildId, userId) => buildMyPage({ theses, measure, alerts, activity }, guildId, userId, Date.now()),
-    quotes: { crypto, stocks },
+    quotes: { crypto, stocks, identify: (raw, kind) => history.identify(raw, kind) },
     charts,
   }),
   members,

@@ -3,6 +3,9 @@ import { log } from '../log.js';
 import type { Close } from './stats.js';
 
 const MINUTE = 60_000;
+const DAY = 24 * 60 * MINUTE;
+/** US listings in Yahoo's search results: Nasdaq, NYSE, NYSE American and Arca, Cboe BZX. */
+const US_EXCHANGES = new Set(['NMS', 'NGM', 'NCM', 'NAS', 'NYQ', 'NYS', 'ASE', 'PCX', 'BTS']);
 const UA = { 'user-agent': 'Mozilla/5.0 (Ledger Discord bot)', accept: 'application/json' };
 
 export type AssetKind = 'crypto' | 'stock';
@@ -43,16 +46,55 @@ export class MarketHistory {
     return (this.deps.now ?? Date.now)();
   }
 
-  /** Crypto if there's a USDT market for it, otherwise a US stock or ETF ticker. */
+  /**
+   * What a member means: a crypto ticker with a USDT market, else a US stock or ETF. Names and tickers
+   * the code doesn't know ("nvidia", "spacex", "c3 ai", "dogecoin") are looked up on Yahoo's search.
+   */
   async identify(raw: string, hint?: AssetKind): Promise<Asset | null> {
-    const symbol = normalizeAsset(raw);
-    if (!symbol) return null;
-    if (hint !== 'stock') {
+    const typed = raw.trim().replace(/^\$/, '');
+    const symbol = normalizeAsset(typed);
+    if (symbol && hint !== 'stock') {
       const pair = await this.deps.resolve(symbol).catch(() => null);
       if (pair) return { symbol, kind: 'crypto', pair };
-      if (hint === 'crypto') return null;
     }
-    return { symbol, kind: 'stock' };
+    const found = await this.lookup(typed);
+    if (found?.kind === 'crypto' && hint !== 'stock') {
+      const pair = await this.deps.resolve(found.symbol).catch(() => null);
+      if (pair) return { symbol: found.symbol, kind: 'crypto', pair };
+    }
+    if (hint === 'crypto') return null;
+    if (found?.kind === 'stock') return found;
+    return symbol ? { symbol, kind: 'stock' } : null;
+  }
+
+  private readonly lookups = new Map<string, { asset: Asset | null; at: number }>();
+
+  /** The best US listing or coin for a name or ticker, from Yahoo's search; cached for a day. */
+  private async lookup(query: string): Promise<Asset | null> {
+    const key = query.toLowerCase();
+    const cached = this.lookups.get(key);
+    if (cached && this.now - cached.at < DAY) return cached.asset;
+    let asset: Asset | null = null;
+    try {
+      const body = (await this.getJson(
+        `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(query)}&quotesCount=6&newsCount=0`,
+      )) as { quotes?: { symbol?: string; quoteType?: string; exchange?: string }[] };
+      const candidates = (body.quotes ?? []).flatMap((q): Asset[] => {
+        if (!q.symbol) return [];
+        if ((q.quoteType === 'EQUITY' || q.quoteType === 'ETF') && US_EXCHANGES.has(q.exchange ?? '')) return [{ symbol: q.symbol, kind: 'stock' }];
+        if (q.quoteType === 'CRYPTOCURRENCY' && q.symbol.endsWith('-USD')) return [{ symbol: q.symbol.slice(0, -4), kind: 'crypto' }];
+        return [];
+      });
+      // An exact ticker match wins. A short, ticker-like query ("ton") takes nothing else: Yahoo's fuzzy
+      // match for it (Tonix, TNXP) is a different company. Names ("nvidia", "spacex") take the top result.
+      const exact = query.toUpperCase();
+      asset = candidates.find((c) => c.symbol === exact) ?? (query.trim().length <= 4 ? null : (candidates[0] ?? null));
+    } catch (err) {
+      log.debug(`Name lookup for "${query}" failed`, err);
+      return null; // not cached: try again next time
+    }
+    this.lookups.set(key, { asset, at: this.now });
+    return asset;
   }
 
   async daily(asset: Asset): Promise<History | null> {
@@ -60,15 +102,61 @@ export class MarketHistory {
     const cached = this.cache.get(key);
     if (cached && this.now - cached.at < 30 * MINUTE) return cached.history;
     const sources = asset.kind === 'crypto' ? [() => this.binance(asset), () => this.bybit(asset)] : [() => this.yahoo(asset), () => this.nasdaq(asset)];
+    let best: History | null = null;
     for (const source of sources) {
       try {
         const history = await source();
-        if (history && history.closes.length >= 30) {
-          this.cache.set(key, { history, at: this.now });
-          return history;
-        }
+        if (history && history.closes.length >= 30 && history.closes.length > (best?.closes.length ?? 0)) best = history;
+        // A year or more is plenty; a short one (a renamed coin, say) is worth checking the next source for.
+        if (best && best.closes.length >= 400) break;
       } catch (err) {
         log.debug(`History for ${asset.symbol} from one source failed; trying the next`, err);
+      }
+    }
+    if (best) this.cache.set(key, { history: best, at: this.now });
+    return best;
+  }
+
+  /** Hourly prices over the last `days` (up to 41), for short-window charts. Oldest first, as timestamps. */
+  async hourly(asset: Asset, days: number): Promise<{ points: { t: number; v: number }[]; source: string } | null> {
+    const hours = Math.min(1000, Math.max(24, Math.round(days * 24)));
+    const tries =
+      asset.kind === 'crypto'
+        ? [
+            async () => ({
+              points: (await this.deps.binance.candles(asset.pair!, '1h', { limit: hours })).map((c) => ({ t: c.openTime, v: c.close })),
+              source: 'Binance',
+            }),
+            async () => {
+              const body = (await this.getJson(`https://api.bybit.com/v5/market/kline?category=spot&symbol=${asset.pair}&interval=60&limit=${hours}`)) as {
+                result?: { list?: string[][] };
+              };
+              return { points: [...(body.result?.list ?? [])].reverse().map((r) => ({ t: Number(r[0]), v: Number(r[4]) })), source: 'Bybit' };
+            },
+          ]
+        : [
+            async () => {
+              const range = days <= 5 ? '5d' : days <= 30 ? '1mo' : '3mo';
+              const interval = days <= 2 ? '5m' : '60m';
+              const body = (await this.getJson(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(asset.symbol)}?range=${range}&interval=${interval}`)) as {
+                chart?: { result?: { timestamp?: number[]; indicators?: { quote?: { close?: (number | null)[] }[] } }[] };
+              };
+              const r = body.chart?.result?.[0];
+              // Counted back from the last trade, so a weekend or holiday still shows the latest sessions.
+              const from = ((r?.timestamp ?? []).at(-1) ?? this.now / 1000) * 1000 - days * DAY;
+              const points = (r?.timestamp ?? []).flatMap((t, i) => {
+                const v = r?.indicators?.quote?.[0]?.close?.[i];
+                return v && t * 1000 >= from ? [{ t: t * 1000, v }] : [];
+              });
+              return { points, source: 'Yahoo Finance' };
+            },
+          ];
+    for (const attempt of tries) {
+      try {
+        const result = await attempt();
+        if (result.points.filter((p) => p.v > 0).length >= 6) return { ...result, points: result.points.filter((p) => p.v > 0) };
+      } catch (err) {
+        log.debug(`Hourly prices for ${asset.symbol} from one source failed`, err);
       }
     }
     return null;
