@@ -1,6 +1,6 @@
-import type { PriceSource } from '../calls/service.js';
-import { dayLabel } from '../daily/questions.js';
-import { type DataDesk, ETF_ASSETS } from '../desk/desk.js';
+import type { BinanceFeed } from '../calls/prices.js';
+import { dayLabel } from '../format.js';
+import { type Desk, ETF_ASSETS } from '../desk/desk.js';
 import { formatPrice } from '../format.js';
 import type { Alert, AlertStore } from './store.js';
 
@@ -16,8 +16,8 @@ export type AlertRequest =
 
 export interface AlertDepsForCreate {
   store: AlertStore;
-  feed: Pick<PriceSource, 'resolve' | 'spot'>;
-  desk: DataDesk | null;
+  feed: Pick<BinanceFeed, 'resolve' | 'spot'>;
+  desk: Desk | null;
 }
 
 type Result = { ok: true; alert: Alert; summary: string } | { ok: false; error: string };

@@ -1,13 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import type { Call, Position } from '../src/calls/store.js';
-import { Board } from '../src/calls/store.js';
-import { DailyStore } from '../src/daily/store.js';
-import { openDb } from '../src/db/index.js';
-import { callCard, draftCard, settlementPost } from '../src/discord/callCards.js';
 import { flowsCard, macroCard, marketCard, newsCard, treasuriesCard } from '../src/discord/deskCards.js';
-import { howItWorks, myPageMessage, receiptsContainer } from '../src/discord/pageCards.js';
+import { howItWorks, myPageMessage } from '../src/discord/pageCards.js';
+import { boardContainer, recordContainer, thesisCard, verdictPost } from '../src/discord/thesisCards.js';
 import { cards } from '../src/discord/ui.js';
+import { BETTING } from '../src/llm/replyCheck.js';
 import type { MyPage } from '../src/pages/myPage.js';
+import type { Thesis } from '../src/theses/store.js';
 
 /** Discord refuses a card message with more than 40 components or 4,000 characters of text, or an empty text block. */
 function checkLimits(payload: { components: readonly unknown[]; flags: unknown }) {
@@ -34,63 +32,73 @@ function checkLimits(payload: { components: readonly unknown[]; flags: unknown }
 }
 
 const NOW = Date.UTC(2026, 9, 24, 12);
-const call: Call = {
-  id: 4, guildId: 'g', channelId: 'c', messageId: 'm', callerId: '111', symbol: 'ETHUSDT', base: 'ETH',
-  direction: 'above', kind: 'touch', target: 2480, deadline: NOW + 2 * 86_400_000, status: 'open',
-  createdAt: NOW, entryPrice: 2407.28, chance: 0.35, payout: 65, lockedAt: NOW, checkedUntil: NOW,
-  settledAt: null, settlePrice: null, settleTime: null, note: null,
+const long = (n: number) => 'The ratio sits in the 12th percentile of its year, so a lot of bad news is already in the price. '.repeat(n).trim();
+const thesis: Thesis = {
+  id: 12, guildId: 'g', channelId: 'c', messageId: 'm', authorId: '111', take: 'sol flips eth this month, trust me, the chart is screaming', claim: 'SOL beats ETH over 8 days',
+  spec: { kind: 'relative', asset: 'SOL', versus: 'ETH', direction: 'up', horizonDays: 8 },
+  analysis: {
+    assumptions: ['this month = 8 days', '"flips" read as outperforms'],
+    // The longest argument the model is allowed: 3 points a side at the word limit.
+    argument: {
+      for: Array.from({ length: 3 }, () => ({ point: long(2), facts: ['F1'] })),
+      against: Array.from({ length: 3 }, () => ({ point: long(2), facts: ['F2'] })),
+      kill: long(2), history: long(2), lean: 'against', verdict: 'Cheap for a reason, until it is not.',
+    },
+    facts: [], sources: ['Binance', 'SoSoValue'],
+  },
+  status: 'draft', startValue: null, startAt: null, checkAt: null, endValue: null, settledAt: null, note: null, createdAt: NOW,
 };
-// A crowded call: 30 members took a side.
-const positions: Position[] = Array.from({ length: 31 }, (_, i) => ({
-  id: i, callId: 4, userId: i === 0 ? '111' : `${200 + i}`, side: i % 3 ? 'back' : 'fade', stake: 0, chance: 0.35, payout: 0,
-  createdAt: NOW, result: null, pnl: null, settledAt: null,
-}));
-const BETTING = /\bodds\b|\bpays?\b|payout|stake|\bbet\b|wager|gambl|×/i;
+const open: Thesis = { ...thesis, status: 'open', startValue: 0.0412, startAt: NOW, checkAt: NOW + 8 * 86_400_000 };
+// A crowded debate: 40 members took a side.
+const crowd = { with: Array.from({ length: 15 }, (_, i) => `${300 + i}`), against: Array.from({ length: 25 }, (_, i) => `${400 + i}`) };
 
 describe('cards fit Discord and read like a record', () => {
-  it('call cards in every state', () => {
-    const states: Call[] = [
-      { ...call, status: 'draft' },
-      call,
-      { ...call, status: 'won', settlePrice: 2481, settleTime: NOW + 3_600_000, settledAt: NOW + 3_600_000 },
-      { ...call, status: 'lost', settlePrice: 2401, settledAt: NOW + 2 * 86_400_000 },
-      { ...call, status: 'void', note: 'bad print' },
-      { ...call, status: 'cancelled', note: 'draft expired' },
+  it('thesis cards in every state', () => {
+    const states: Thesis[] = [
+      thesis,
+      open,
+      { ...open, status: 'aged_well', endValue: 0.045, settledAt: open.checkAt },
+      { ...open, status: 'aged_badly', endValue: 0.039, settledAt: open.checkAt },
+      { ...open, status: 'void', note: 'bad print' },
+      { ...thesis, status: 'cancelled', note: 'not logged within a day' },
     ];
-    const settled = positions.map((p) => ({ ...p, result: (p.side === 'back' ? 'won' : 'lost') as Position['result'] }));
-    for (const c of states) {
-      const { text } = checkLimits(c.status === 'draft' ? draftCard(c) : callCard(c, c.status === 'open' ? positions : settled));
-      // Button ids keep their internal names (ledger:back:4); only check what members read.
-      expect(text.replace(/ledger:\w+:\d+/g, '')).not.toMatch(BETTING);
+    for (const t of states) {
+      const { text } = checkLimits(thesisCard(t, t.status === 'draft' ? { with: [], against: [] } : crowd));
+      expect(text.replace(/thesis:\w+:\d+/g, '')).not.toMatch(BETTING);
     }
-    const post = settlementPost({ call: { ...call, status: 'won' }, positions: settled, won: true, price: 2481, at: NOW });
-    expect(post.allowedMentions.users).toEqual(['111']);
-    expect(checkLimits(post).text).not.toMatch(BETTING);
+    expect(checkLimits(thesisCard(thesis, { with: [], against: [] })).text).toContain('Log it');
+    expect(checkLimits(thesisCard(open, crowd)).text).toContain("I'm against");
   });
 
-  it('your page, receipts and how it works', () => {
+  it('check-back posts ping only the author and show a contrarian win', () => {
+    const post = verdictPost({ thesis: { ...open, status: 'aged_well', endValue: 0.045 }, endValue: 0.045, held: true }, crowd);
+    expect(post.allowedMentions.users).toEqual(['111']);
+    const { text } = checkLimits(post);
+    expect(text).toMatch(/aged well/);
+    expect(text).toMatch(/contrarian/i);
+    expect(text).not.toMatch(BETTING);
+  });
+
+  it('your takes, records, open debates and how it works', () => {
     const page: MyPage = {
       since: NOW - 3_600_000,
       firstVisit: false,
-      record: {
-        settled: Array.from({ length: 8 }, (_, i) => ({ call: { ...call, id: i, status: 'won' }, position: { ...positions[0]!, result: 'won', pnl: 65 }, asCaller: true })),
-        open: Array.from({ length: 8 }, (_, i) => ({ call: { ...call, id: 20 + i }, side: 'back', asCaller: i % 2 === 0, price: 2410 })),
-        rep: 130,
-        rank: 2,
-        ranked: 14,
-        leans: { right: 3, wrong: 1 },
-      },
-      question: { current: null, pending: [], last: null, streak: 0 },
+      open: Array.from({ length: 12 }, (_, i) => ({ thesis: { ...open, id: 20 + i }, value: 0.043, holding: i % 2 === 0 })),
+      results: Array.from({ length: 8 }, (_, i) => ({ ...open, id: 40 + i, status: i % 2 ? 'aged_well' : 'aged_badly' }) as Thesis),
+      sided: Array.from({ length: 10 }, (_, i) => ({ thesis: { ...open, id: 60 + i, authorId: '222' }, side: i % 2 ? 'with' : 'against' })),
+      record: { logged: 30, agedWell: 12, agedBadly: 9, open: 9, contrarianWins: 3, sidesRight: 14, sidesSettled: 20, best: { ...open, status: 'aged_well', endValue: 0.05 } },
       watching: {
         active: Array.from({ length: 20 }, (_, i) => ({ id: i, guildId: 'g', channelId: 'c', userId: '111', kind: 'price', asset: 'BTC', direction: 'above', target: 80_000 + i * 1000, refPrice: null, repeat: false, status: 'active', createdAt: NOW, firedAt: null }) as never),
         fired: [],
       },
-      tape: null,
     };
-    checkLimits(myPageMessage(page, 'g', true));
-    checkLimits(myPageMessage({ ...page, firstVisit: true, record: { ...page.record, settled: [], open: [] }, watching: { active: [], fired: [] } }, 'g', false));
-    const db = openDb(':memory:');
-    checkLimits(cards([receiptsContainer(new Board(db), new DailyStore(db), 'g', { id: '111', name: 'Elias' }, NOW)]));
+    expect(checkLimits(myPageMessage(page, 'g', true)).text).not.toMatch(BETTING);
+    const empty = { logged: 0, agedWell: 0, agedBadly: 0, open: 0, contrarianWins: 0, sidesRight: 0, sidesSettled: 0, best: null };
+    checkLimits(myPageMessage({ ...page, firstVisit: true, open: [], results: [], sided: [], record: empty, watching: { active: [], fired: [] } }, 'g', false));
+    checkLimits(cards([recordContainer('Elias', page.record)]));
+    checkLimits(cards([recordContainer('Elias', empty)]));
+    checkLimits(cards([boardContainer(Array.from({ length: 30 }, (_, i) => ({ t: { ...open, id: i }, sides: crowd })), Array.from({ length: 10 }, (_, i) => ({ userId: `${i}`, agedWell: 5, settled: 8 })))]));
+    checkLimits(cards([boardContainer([], [])]));
     expect(checkLimits(howItWorks()).text).not.toMatch(BETTING);
   });
 

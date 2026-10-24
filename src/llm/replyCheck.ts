@@ -10,7 +10,7 @@ const PRICE_CONTEXT = /(?:\b[A-Z]{2,6}\b|\b(?:price|spot|at|trading|trades|range
 const KNOWLEDGE_UNIT = /^\s*(?:blocks?|coins?|tokens?|million|billion|years?|months?|days?|hours?|minutes?|seconds?|holders?|validators?|nodes?|transactions?|txs?|tps|members?|people|users?|nfts?|items?|employees?|shares? outstanding)\b/i;
 
 /** Betting words, and a rating followed by signed points ("rated 13% … +87"): a betting slip either way. */
-const BETTING = /\b(payouts?|odds|bets?|betting|wager(?:s|ed)?|stakes?|staked|jackpot|long ?shots?)\b/i;
+export const BETTING = /\b(payouts?|odds|bets?|betting|wager(?:s|ed)?|stakes?|staked|jackpot|long ?shots?)\b/i;
 const RATING_THEN_POINTS = /\d{1,2}(?:\.\d+)?%[^\n]{0,60}?(?<![\w.$])[+−]\d{1,3}(?![\d.,%])/;
 
 // Alert changes: only checked when the member asked for one, so "ETH dropped 2%" is never mistaken for a claim.
@@ -79,7 +79,7 @@ export function replyProblems(reply: string, evidence: { request: string; toolsU
     problems.push("You wrote that a watch is set, but set_alert didn't run in this reply. Call set_alert now, or say it isn't set.");
   }
   const word = BETTING.exec(reply)?.[0];
-  if (word) problems.push(`Don't use the word "${word}", not even to deny it. Points are a public record; nothing goes in or out.`);
+  if (word) problems.push(`Don't use the word "${word}", not even to deny it. Takes are a public record; nothing goes in or out.`);
   if (RATING_THEN_POINTS.test(reply)) problems.push('Never put a rating next to points ("13%… +87"). Give the rating alone; points live on the member\'s own page.');
   return problems;
 }

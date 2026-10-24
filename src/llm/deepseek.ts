@@ -30,6 +30,11 @@ export interface CompleteOptions {
   tools?: Tool[];
   /** 'none' forces a text answer even though tools are listed. */
   toolChoice?: 'auto' | 'none';
+  /** Think before answering (slower, bills reasoning as output): for the stress-test argument. */
+  thinking?: boolean;
+  /** Answer with one JSON object (the prompt must say "json"). */
+  json?: boolean;
+  temperature?: number;
 }
 
 export interface ChatModel {
@@ -67,11 +72,12 @@ export class DeepSeek implements ChatModel {
       model: this.opts.model,
       messages,
       max_tokens: opts.maxTokens,
-      temperature: 1.0,
+      temperature: opts.temperature ?? 1.0,
       ...(opts.tools?.length ? { tools: opts.tools, tool_choice: opts.toolChoice ?? 'auto' } : {}),
-      // DeepSeek-specific: thinking mode is on by default. Chat replies don't need it, and it is
-      // slower and bills reasoning tokens as output.
-      thinking: { type: 'disabled' },
+      ...(opts.json ? { response_format: { type: 'json_object' } } : {}),
+      // DeepSeek-specific: thinking mode is on by default. Chat replies don't need it (it's slower and
+      // bills reasoning tokens as output); the stress-test argument does.
+      thinking: { type: opts.thinking ? 'enabled' : 'disabled' },
     } as OpenAI.Chat.ChatCompletionCreateParamsNonStreaming;
     const res = await this.client.chat.completions.create(params);
     const message = res.choices[0]?.message;

@@ -72,3 +72,16 @@ export function formatChance(p: number): string {
   if (p < 0.001) return '<0.1%';
   return `${(p * 100).toFixed(p < 0.1 ? 1 : 0)}%`;
 }
+
+/** "+5.30%", "−1.17%", "0.00%" from a fraction. */
+export function signedPct(fraction: number): string {
+  const pct = (fraction * 100).toFixed(2);
+  return fraction > 0 ? `+${pct}%` : fraction < 0 ? `−${pct.slice(1)}%` : '0.00%';
+}
+
+/** "Fri 23 Oct" from "2026-10-23". */
+export function dayLabel(day: string): string {
+  return new Date(`${day}T12:00:00Z`)
+    .toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' })
+    .replace(',', '');
+}

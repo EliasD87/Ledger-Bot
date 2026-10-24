@@ -10,12 +10,12 @@ export type Pillar = 'record' | 'tape' | 'watch' | 'memory' | 'page' | 'chat';
 
 /** Which pillar each chat tool belongs to. */
 export const TOOL_PILLAR: Record<string, Pillar> = {
-  draft_call: 'record',
-  check_call: 'record',
-  get_receipts: 'record',
-  get_leaderboard: 'record',
-  list_open_calls: 'record',
-  get_daily_question: 'record',
+  stress_test: 'record',
+  get_thesis: 'record',
+  get_takes: 'record',
+  list_debates: 'record',
+  analyze: 'tape',
+  get_price: 'tape',
   get_recap: 'tape',
   get_etf_flows: 'tape',
   get_macro: 'tape',
@@ -32,9 +32,8 @@ export const TOOL_PILLAR: Record<string, Pillar> = {
 
 /** Which pillar each slash command belongs to. */
 export const COMMAND_PILLAR: Record<string, Pillar> = {
-  call: 'record',
-  receipts: 'record',
-  board: 'record',
+  take: 'record',
+  takes: 'record',
   tape: 'tape',
   watch: 'watch',
   recall: 'memory',
@@ -49,13 +48,14 @@ export interface Habit {
   avgDailyActive: number;
   /** Members active on 3 or more of the last 8 UTC days. */
   returning: number;
-  /** Members who used 2 or more of record / tape / watch / memory in the last 7 days. */
+  /** Members who used 2 or more of takes / tape / watch / memory in the last 7 days. */
   multiPillar: number;
   pageOpens: number;
   buttons: number;
-  answers: number;
-  callsLocked: number;
-  leans: number;
+  /** Takes argued out (drafts), logged as theses, and sides taken by other members. */
+  stressTests: number;
+  logged: number;
+  sides: number;
   watchAdds: number;
   chatMessages: number;
   chatWithTools: number;
@@ -149,14 +149,10 @@ export class Metrics {
       ),
       pageOpens: count("SELECT COUNT(*) AS n FROM events WHERE guild_id = ? AND type = 'page_open' AND ts >= ?", guildId, week),
       buttons: count("SELECT COUNT(*) AS n FROM events WHERE guild_id = ? AND type = 'button' AND ts >= ?", guildId, week),
-      answers: count(
-        'SELECT COUNT(*) AS n FROM daily_answers a JOIN daily_questions q ON q.id = a.question_id WHERE q.guild_id = ? AND a.answered_at >= ?',
-        guildId,
-        week,
-      ),
-      callsLocked: count('SELECT COUNT(*) AS n FROM calls WHERE guild_id = ? AND locked_at >= ?', guildId, week),
-      leans: count(
-        'SELECT COUNT(*) AS n FROM positions p JOIN calls c ON c.id = p.call_id WHERE c.guild_id = ? AND p.user_id <> c.caller_id AND p.created_at >= ?',
+      stressTests: count('SELECT COUNT(*) AS n FROM theses WHERE guild_id = ? AND created_at >= ?', guildId, week),
+      logged: count('SELECT COUNT(*) AS n FROM theses WHERE guild_id = ? AND start_at >= ?', guildId, week),
+      sides: count(
+        'SELECT COUNT(*) AS n FROM thesis_sides s JOIN theses t ON t.id = s.thesis_id WHERE t.guild_id = ? AND s.created_at >= ?',
         guildId,
         week,
       ),

@@ -1,23 +1,13 @@
-import {
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
-  ChannelSelectMenuBuilder,
-  ChannelType,
-  type ContainerBuilder,
-} from 'discord.js';
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelSelectMenuBuilder, ChannelType } from 'discord.js';
 import { describeAlert } from '../alerts/service.js';
-import { type Board, type Call, seasonStart } from '../calls/store.js';
-import { callHeadline } from '../calls/service.js';
-import { dayLabel } from '../daily/questions.js';
-import type { DailyStore, Question } from '../daily/store.js';
-import { leadingFund } from '../desk/desk.js';
-import { discordTime, formatPoints, formatUsd, monthLabel } from '../format.js';
+import { discordTime } from '../format.js';
 import type { MyPage } from '../pages/myPage.js';
+import { measureLabel } from '../theses/spec.js';
+import type { Thesis } from '../theses/store.js';
+import { formatMeasure } from './thesisCards.js';
 import { ACCENT, card, cards, divider, kicker, privateCards, row } from './ui.js';
 
-
-export type PageAction = 'me' | 'receipts' | 'how' | 'catchup';
+export type PageAction = 'me' | 'record' | 'how' | 'catchup';
 
 /** Button ids for Your Page. `guildId` rides along so the buttons also work from a DM. */
 export function pageButtonId(action: PageAction, guildId = ''): string {
@@ -25,99 +15,50 @@ export function pageButtonId(action: PageAction, guildId = ''): string {
 }
 
 export function parsePageButtonId(customId: string): { action: PageAction; guildId: string } | null {
-  const match = /^page:(me|receipts|how|catchup):(\d*)$/.exec(customId);
-  return match ? { action: match[1] as PageAction, guildId: match[2]! } : null;
+  const match = /^page:(me|record|receipts|how|catchup):(\d*)$/.exec(customId);
+  if (!match) return null;
+  // Buttons on older messages still say "receipts".
+  return { action: (match[1] === 'receipts' ? 'record' : match[1]) as PageAction, guildId: match[2]! };
 }
 
-/** A row with a single [My page] button: the way back into the loop from any reply. */
+/** A row with a single [My takes] button: the way back from any reply. */
 export function pageRow(guildId = ''): ActionRowBuilder<ButtonBuilder> {
   return new ActionRowBuilder<ButtonBuilder>().addComponents(myPageButton(guildId));
 }
 
 export function myPageButton(guildId = ''): ButtonBuilder {
-  return new ButtonBuilder().setCustomId(pageButtonId('me', guildId)).setLabel('My page').setEmoji('📒').setStyle(ButtonStyle.Secondary);
+  return new ButtonBuilder().setCustomId(pageButtonId('me', guildId)).setLabel('My takes').setStyle(ButtonStyle.Secondary);
 }
 
-export function callLink(call: Call): string {
-  return call.messageId ? `[#${call.id}](https://discord.com/channels/${call.guildId}/${call.channelId}/${call.messageId})` : `#${call.id}`;
+/** "#12" linking to the thesis card when there is one. */
+export function thesisLink(t: Thesis): string {
+  return t.messageId ? `[#${t.id}](https://discord.com/channels/${t.guildId}/${t.channelId}/${t.messageId})` : `#${t.id}`;
 }
 
-function questionLink(q: Question): string | null {
-  return q.messageId ? `https://discord.com/channels/${q.guildId}/${q.channelId}/${q.messageId}` : null;
-}
+const pct = (x: number) => `${x >= 0 ? '+' : '−'}${Math.abs(x * 100).toFixed(1)}%`;
 
-function optionOf(q: Question, choice: 'a' | 'b' | undefined): string | undefined {
-  return choice ? q.spec.options[choice === 'a' ? 0 : 1] : undefined;
-}
-
-/** When a closed question is expected to settle, in words. */
-export function settlesWhen(q: Question): string {
-  return q.spec.windowEnd ? `settles ${discordTime(q.spec.windowEnd + 60_000, 'R')}` : 'settles when SoSoValue posts the flows (T+1)';
-}
-
-/** Your Page: private, since the last visit. `inGuild` adds the catch-up picker (it needs a server). */
+/** Your page: private, since the last visit. `inGuild` adds the catch-up picker (it needs a server). */
 export function myPageMessage(page: MyPage, guildId: string, inGuild: boolean) {
   const r = page.record;
-  const calls: string[] = [];
-  for (const s of r.settled.slice(0, 5)) {
-    const mark = s.position.result === 'won' ? '✓' : '✗';
-    const verdict = s.position.result === 'won' ? 'right' : 'wrong';
-    calls.push(
-      s.asCaller
-        ? `${mark} ${callLink(s.call)} ${callHeadline(s.call)} · ${verdict} · **${formatPoints(s.position.pnl ?? 0)}**`
-        : `${mark} ${callLink(s.call)} ${callHeadline(s.call)} · you ${s.position.side === 'back' ? 'agreed' : 'disagreed'} · ${verdict}`,
-    );
-  }
-  for (const o of r.open.slice(0, 5)) {
-    const away = o.price ? ` · ${Math.abs((o.call.target / o.price - 1) * 100).toFixed(1)}% away` : '';
-    const role = o.asCaller ? 'your call' : o.side === 'back' ? 'you agree' : 'you disagree';
-    calls.push(`⏳ ${callLink(o.call)} ${callHeadline(o.call)} · ${role}${away} · ends ${discordTime(o.call.deadline, 'R')}`);
-  }
-  const leanTotal = r.leans.right + r.leans.wrong;
-  const standing =
-    `Season rep **${formatPoints(r.rep)}**${r.rank ? ` · #${r.rank} of ${r.ranked}` : ''}` +
-    (leanTotal ? ` · agree/disagree ${r.leans.right} of ${leanTotal} right` : '');
-
-  // The daily question, only where the server runs it; nobody is pushed into it.
-  const q = page.question;
-  const question: string[] = [];
-  if (q.current) {
-    const mine = optionOf(q.current.q, q.current.mine);
-    question.push(`${q.current.q.spec.prompt} · ${mine ? `you said **${mine}**` : 'not answered yet'} · closes ${discordTime(q.current.q.closesAt, 'R')}`);
-  }
-  for (const p of q.pending.slice(0, 2)) {
-    const mine = optionOf(p.q, p.mine);
-    if (mine) question.push(`${dayLabel(p.q.spec.day)}: you said **${mine}** · ${settlesWhen(p.q)}`);
-  }
-  if (q.last && (q.last.q.resolvedAt ?? 0) >= page.since - 60_000) {
-    const answer = optionOf(q.last.q, q.last.q.answer ?? undefined);
-    const mine = optionOf(q.last.q, q.last.mine);
-    question.push(`${dayLabel(q.last.q.spec.day)}: **${answer ?? 'no answer'}**${mine ? ` · you said ${mine} ${mine === answer ? '✓' : '✗'}` : ''}`);
-  }
-  if (question.length || q.streak) question.push(kicker(`Streak ${q.streak} day${q.streak === 1 ? '' : 's'}`));
-
-  const w = page.watching;
+  const settled = r.agedWell + r.agedBadly;
+  const open = page.open.map(({ thesis: t, value, holding }) => {
+    const where =
+      value === null
+        ? ''
+        : t.spec.kind === 'flows'
+          ? ` · ${formatMeasure(t.spec, value)} so far`
+          : ` · ${measureLabel(t.spec)} ${pct(value / (t.startValue ?? value) - 1)} since logged`;
+    return `${holding ? '▲' : holding === false ? '▽' : '·'} ${thesisLink(t)} ${t.claim}${where} · ${discordTime(t.checkAt!, 'R')}`;
+  });
+  const results = page.results.map((t) => `${t.status === 'aged_well' ? '✓' : '✗'} ${thesisLink(t)} ${t.claim} · ${t.status === 'aged_well' ? 'aged well' : 'aged badly'}`);
+  const sided = page.sided.map(({ thesis: t, side }) => {
+    const outcome = t.status === 'open' ? discordTime(t.checkAt!, 'R') : (side === 'with') === (t.status === 'aged_well') ? 'you read it right ✓' : 'you missed ✗';
+    return `${thesisLink(t)} ${t.claim} · you're ${side} <@${t.authorId}> · ${outcome}`;
+  });
   const watching = [
-    ...w.fired.slice(0, 3).map((a) => `🔔 ${plainAlert(a)} · fired ${discordTime(a.firedAt!, 'R')}`),
-    ...w.active.slice(0, 6).map((a) => `· ${plainAlert(a)}`),
+    ...page.watching.fired.slice(0, 3).map((a) => `🔔 ${plainAlert(a)} · fired ${discordTime(a.firedAt!, 'R')}`),
+    ...page.watching.active.slice(0, 6).map((a) => `· ${plainAlert(a)}`),
   ];
-
-  const tape = page.tape
-    ? [
-        ...page.tape.flows.map((f) => {
-          const lead = leadingFund(f);
-          return `${f.asset} ETFs ${dayLabel(f.latest.date)} **${formatUsd(f.latest.totalNetInflow!, true)}**${lead ? ` · ${lead.ticker} led` : ''}`;
-        }),
-        ...page.tape.macro.slice(0, 3).map((m) => `${m.event} **${m.actual}**${m.forecast ? ` · forecast ${m.forecast}` : ''}`),
-      ]
-    : [];
-
-  const link = q.current && !q.current.mine ? questionLink(q.current.q) : null;
-  const buttons = row(
-    ...(link ? [new ButtonBuilder().setStyle(ButtonStyle.Link).setURL(link).setLabel("Answer today's question")] : []),
-    new ButtonBuilder().setCustomId(pageButtonId('receipts', guildId)).setLabel('Receipts').setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId(pageButtonId('how', guildId)).setLabel('How it works').setStyle(ButtonStyle.Secondary),
-  );
   const picker = row(
     new ChannelSelectMenuBuilder()
       .setCustomId(pageButtonId('catchup', guildId))
@@ -127,50 +68,30 @@ export function myPageMessage(page: MyPage, guildId: string, inGuild: boolean) {
 
   return cards([
     card(ACCENT.page, [
-      '## 📒 Your page',
+      '## ⚖️ Your takes',
       kicker(page.firstVisit ? 'First visit · from now on this shows what changed since you last looked' : `Since ${discordTime(page.since, 'R')}`),
-      divider(),
-      '**Calls**',
-      ...(calls.length ? clip(calls) : [kicker('Nothing yet. Make one: @Ledger I call BTC hits 90k by Friday')]),
-      kicker(standing),
-      question.length > 0 && divider(),
-      question.length > 0 && '**Daily question**',
-      ...clip(question),
+      settled || r.open
+        ? `**${r.agedWell}** aged well · **${r.agedBadly}** aged badly · **${r.open}** open${r.contrarianWins ? ` · ${r.contrarianWins} contrarian win${r.contrarianWins === 1 ? '' : 's'}` : ''}`
+        : 'Nothing on the record yet. Tell me what you think will happen: @Ledger sol beats eth this month',
+      results.length > 0 && divider(),
+      results.length > 0 && '**Checked since you looked**',
+      ...clip(results),
+      open.length > 0 && divider(),
+      open.length > 0 && '**Open**',
+      ...clip(open),
+      sided.length > 0 && divider(),
+      sided.length > 0 && '**Debates you joined**',
+      ...clip(sided),
       watching.length > 0 && divider(),
       watching.length > 0 && '**Watching**',
       ...clip(watching),
-      tape.length > 0 && divider(),
-      tape.length > 0 && '**Since you looked**',
-      ...clip(tape),
-      buttons,
+      row(
+        new ButtonBuilder().setCustomId(pageButtonId('record', guildId)).setLabel('My record').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(pageButtonId('how', guildId)).setLabel('How it works').setStyle(ButtonStyle.Secondary),
+      ),
       inGuild && picker,
-      kicker('Only you can see this · points are reputation, not money'),
+      kicker('Only you can see this · ▲ on track · ▽ not there yet'),
     ]),
-  ]);
-}
-
-/** Receipts: one builder for /receipts and the [Receipts] button, so the numbers always agree. */
-export function receiptsContainer(board: Board, daily: DailyStore, guildId: string, member: { id: string; name: string }, now: number): ContainerBuilder {
-  const r = board.receipts(guildId, member.id, seasonStart(now));
-  const d = daily.stats(guildId, member.id, seasonStart(now));
-  const title = `## 📒 Receipts · ${member.name}`;
-  const settled = r.lifetime.wins + r.lifetime.losses;
-  const leanTotal = r.leans.right + r.leans.wrong;
-  if (!settled && !r.open.length && !d.answered && !leanTotal) {
-    return card(ACCENT.page, [title, 'Nothing on the record yet.', kicker('Make a call: @Ledger I call BTC hits 90k by Friday')]);
-  }
-  const made = r.callsMade.open + r.callsMade.won + r.callsMade.lost;
-  return card(ACCENT.page, [
-    title,
-    `Rep **${formatPoints(r.season.points + d.seasonPoints)}** in ${monthLabel(now)} · **${formatPoints(r.lifetime.points + d.points)}** lifetime`,
-    d.answered > 0 && kicker(`Season: calls ${formatPoints(r.season.points)} · daily question ${formatPoints(d.seasonPoints)}`),
-    divider(),
-    `**Calls** ${made} made · ${r.callsMade.won} right · ${r.callsMade.lost} wrong · ${r.callsMade.open} open`,
-    r.recent.length > 0 && `**Recent** ${r.recent.map((x) => (x === 'won' ? '✓' : '✗')).join(' ')}`,
-    r.biggestHit && `**Best call** ${callLink(r.biggestHit.call)} ${callHeadline(r.biggestHit.call)} · ${formatPoints(r.biggestHit.points)}`,
-    leanTotal > 0 && `**Agree / disagree** ${r.leans.right} of ${leanTotal} right`,
-    d.answered > 0 && `**Daily question** ${d.right} of ${d.answered} right · ${d.streak}-day streak`,
-    kicker('A call scores its result minus its rating · points are reputation, not money'),
   ]);
 }
 
@@ -178,12 +99,14 @@ export function receiptsContainer(board: Board, daily: DailyStore, guildId: stri
 export function howItWorks() {
   return privateCards([
     card(ACCENT.page, [
-      '## 📒 How Ledger works',
+      '## ⚖️ How Ledger works',
+      kicker('Bring a take. Get the evidence. See how it ages.'),
       divider(),
-      '**Just ask.** Mention me or reply to me: "what moved yesterday?", "btc price?", "alert me if BTC drops below 80k", "catch me up", "what\'s kai\'s record?"',
-      "**Calls.** `@Ledger I call BTC hits 90k by Friday` or `/call`. I rate it from recent volatility; lock it in and the market settles it. The less likely a call was, the more it counts when it lands. Others can agree or disagree; that goes on their receipts, not their rep.",
-      '**Your page** `/ledger` shows what changed since you last looked. **Watchlist** `/watch` DMs you when a price moves, flows print or CPI drops.',
-      kicker('Reply to any Ledger post to ask about it · optional daily post: /ledger-setup'),
+      '**Bring a take.** "@Ledger sol beats eth this month", "nvda dip is a gift", "btc 100k by christmas", or `/take`. I pull the data and argue it out: the case for, the case against, what would prove you wrong, and what history says.',
+      "**Log it.** Press *Log it* and it goes on the record with a check-back date. Others press *I'm with you* or *I'm against*.",
+      '**See how it aged.** On the date I reply in the same thread: aged well or aged badly, and who read it right. Your record keeps score of takes, not money.',
+      '**Just ask, too.** Prices, "what moved yesterday?", "how\'s SOL looking vs ETH?", "alert me if BTC drops below 80k", "catch me up".',
+      kicker('Evidence, not forecasts · numbers from Binance, Yahoo and SoSoValue'),
     ]),
   ]);
 }

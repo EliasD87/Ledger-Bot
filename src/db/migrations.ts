@@ -219,4 +219,46 @@ export const migrations: string[] = [
   ALTER TABLE alerts_v5 RENAME TO alerts;
   CREATE INDEX alerts_status ON alerts (status, kind);
   `,
+  // 6: the stored tape. A background fetcher keeps SoSoValue results here (and counts its requests
+  // against the monthly cap); chat, cards and alerts read from it and never call SoSoValue themselves.
+  `
+  CREATE TABLE kv (
+    key        TEXT PRIMARY KEY,
+    value      TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+  `,
+  // 7: the sparring partner. A take is stress-tested (a draft), the author can log it as a thesis with
+  // a check-back date, others take a side, and at the date it's measured: aged well or aged badly.
+  // The old calls, positions and daily-question tables stay, unused, so nothing is lost.
+  `
+  CREATE TABLE theses (
+    id          INTEGER PRIMARY KEY,
+    guild_id    TEXT NOT NULL,
+    channel_id  TEXT NOT NULL,
+    message_id  TEXT,
+    author_id   TEXT NOT NULL,
+    take        TEXT NOT NULL,            -- the member's own words
+    claim       TEXT NOT NULL,            -- what will be checked, in plain words
+    spec        TEXT NOT NULL,            -- JSON ThesisSpec
+    analysis    TEXT NOT NULL,            -- JSON: assumptions, argument, facts, sources
+    status      TEXT NOT NULL CHECK (status IN ('draft', 'open', 'aged_well', 'aged_badly', 'void', 'cancelled')),
+    start_value REAL,
+    start_at    INTEGER,
+    check_at    INTEGER,
+    end_value   REAL,
+    settled_at  INTEGER,
+    note        TEXT,
+    created_at  INTEGER NOT NULL
+  );
+  CREATE INDEX theses_due ON theses (status, check_at);
+  CREATE INDEX theses_author ON theses (guild_id, author_id);
+  CREATE TABLE thesis_sides (
+    thesis_id  INTEGER NOT NULL REFERENCES theses (id),
+    user_id    TEXT NOT NULL,
+    side       TEXT NOT NULL CHECK (side IN ('with', 'against')),
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (thesis_id, user_id)
+  );
+  `,
 ];

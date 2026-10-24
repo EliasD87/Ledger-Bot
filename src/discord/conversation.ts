@@ -1,15 +1,16 @@
 import { ComponentType, type Message, MessageReferenceType } from 'discord.js';
 import type { Config } from '../config.js';
-import type { Board } from '../calls/store.js';
 import type { ChatMessage, ChatModel, Usage } from '../llm/deepseek.js';
 import type { RateLimiter, Spend } from '../llm/guards.js';
 import { answerChecked } from '../llm/replyCheck.js';
 import { log } from '../log.js';
+import type { Members } from '../members.js';
 import type { Metrics, ReplyIndex } from '../metrics.js';
 import { LINES, PERSONA, PERSONA_EXAMPLES, contextLine } from '../persona.js';
+import type { ThesisStore } from '../theses/store.js';
 import type { ToolKit } from '../tools.js';
-import { draftContainer } from './callCards.js';
 import { postableReply, readableContent, roleMentionIds } from './text.js';
+import { thesisContainer } from './thesisCards.js';
 import { type ThreadMessage, collectChain, toChatMessages } from './thread.js';
 import { cards, say } from './ui.js';
 
@@ -20,7 +21,8 @@ export interface ConversationDeps {
   llm: ChatModel;
   /** The model's tools (see src/tools.ts). */
   tools: ToolKit;
-  board: Board;
+  members: Members;
+  theses: ThesisStore;
   limiter: RateLimiter;
   spend: Spend;
   metrics: Metrics;
@@ -46,9 +48,10 @@ export class Conversation {
       return;
     }
 
-    const { config, limiter, spend, metrics, board } = this.deps;
+    const { config, limiter, spend, metrics, members, theses } = this.deps;
     const base = { guildId: message.guildId, channelId: message.channelId, userId: message.author.id };
-    board.remember(message.author.id, message.member?.displayName ?? message.author.displayName);
+    const name = message.member?.displayName ?? message.author.displayName;
+    members.remember(message.author.id, name);
 
     const verdict = limiter.check(message.author.id);
     if (!verdict.ok) {
@@ -77,7 +80,7 @@ export class Conversation {
       ...toChatMessages(chain.map((m) => toThreadMessage(m, selfId))),
     ];
 
-    const session = this.deps.tools.session(base);
+    const session = this.deps.tools.session({ ...base, name });
     let text: string;
     let toolsUsed: string[];
     let corrected: number;
@@ -104,10 +107,10 @@ export class Conversation {
       clearInterval(typing);
     }
 
-    // A call drafted during this reply rides along as a card with its Lock it in button, under the text.
+    // A take stress-tested during this reply rides along as its card (with Log it), under the text.
     const { draft } = session;
-    const sent = await message.reply(draft ? cards([say(text), draftContainer(draft)], { replyPing: true }) : text);
-    if (draft) board.attachMessage(draft.id, message.channelId, sent.id);
+    const sent = await message.reply(draft ? cards([say(text), thesisContainer(draft, { with: [], against: [] })], { replyPing: true }) : text);
+    if (draft) theses.attachMessage(draft.id, message.channelId, sent.id);
     this.deps.replies.remember(sent.id, rootId, message.channelId);
     metrics.record({
       ...base,
@@ -213,7 +216,7 @@ function componentText(components: unknown[]): { text: string[]; cardTexts: stri
   return { text, cardTexts };
 }
 
-/** "### BTC ≥ 90,000\n-# Call #4" → "BTC ≥ 90,000 · Call #4". */
+/** "### SOL beats ETH over a month\n-# Thesis #4" →"SOL beats ETH over a month · Thesis #4". */
 function oneLine(markdown: string): string {
   return markdown
     .split('\n')

@@ -36,6 +36,22 @@ export interface MarketReport {
 }
 
 /**
+ * How Ledger reads market data. The live DataDesk below asks SoSoValue; only the background fetcher
+ * uses it. Everything members touch reads a StoredDesk (desk/tape.ts) holding the fetcher's results.
+ */
+export interface Desk {
+  readonly treasuries: { readonly ready: boolean };
+  readonly requestsThisMonth: number;
+  flows(asset: string, opts?: { withFunds?: boolean }): Promise<FlowReport | null>;
+  macro(): Promise<MacroReport>;
+  todaysEvents(): Promise<string[]>;
+  releaseToday(event: string): Promise<(MacroRelease & { event: string }) | null>;
+  treasuryBuys(days?: number): Purchase[];
+  news(asset?: string): Promise<{ asset: string | null; items: NewsItem[] }>;
+  market(): Promise<MarketReport>;
+}
+
+/**
  * Ledger's data desk: market numbers from SoSoValue, reported as entries, never interpreted.
  * Each method returns null (or an empty list) when SoSoValue has nothing for the request.
  */
@@ -54,7 +70,7 @@ export class DataDesk {
   async flows(asset: string, { withFunds = true } = {}): Promise<FlowReport | null> {
     const symbol = asset.trim().toUpperCase().replace(/^\$/, '');
     if (!(ETF_ASSETS as readonly string[]).includes(symbol)) return null;
-    const days = (await this.soso.etfFlows(symbol, 'US', 10)).filter((d) => d.totalNetInflow !== null);
+    const days = (await this.soso.etfFlows(symbol, 'US', 30)).filter((d) => d.totalNetInflow !== null);
     const latest = days[0];
     if (!latest) return null;
 

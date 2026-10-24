@@ -27,10 +27,8 @@ export interface Config {
     hourlyLimit: number;
   };
   threadMaxMessages: number;
-  /** Without a key, the data desk and the ETF-flow daily questions are off. */
+  /** Without a key, the tape (ETF flows, macro, headlines) and flow takes are off. */
   sosovalueApiKey: string | undefined;
-  /** When each Daily Question closes and the next opens, as minutes after 00:00 UTC. */
-  dailyCloseMinuteUtc: number;
   priceFeedUrl: string;
   dbPath: string;
   logLevel: string;
@@ -64,7 +62,6 @@ export function loadConfig(env: Env = loadDotEnv()): Config {
     },
     threadMaxMessages: read.number('THREAD_MAX_MESSAGES', 12),
     sosovalueApiKey: read.optional('SOSOVALUE_API_KEY'),
-    dailyCloseMinuteUtc: read.clock('DAILY_QUESTION_CLOSE_UTC', '13:30'),
     priceFeedUrl: read.optional('PRICE_FEED_URL') ?? 'https://data-api.binance.vision',
     dbPath: read.optional('DB_PATH') ?? './data/ledger.db',
     logLevel: read.optional('LOG_LEVEL') ?? 'info',
@@ -97,15 +94,6 @@ function reader(env: Env) {
         throw new Error(`Setting ${name} must be a non-negative number, got "${raw}"`);
       }
       return value;
-    },
-    /** "HH:MM" → minutes after midnight. */
-    clock(name: string, fallback: string): number {
-      const raw = optional(name) ?? fallback;
-      const match = /^(\d{1,2}):(\d{2})$/.exec(raw);
-      if (!match || Number(match[1]) > 23 || Number(match[2]) > 59) {
-        throw new Error(`Setting ${name} must look like "13:30", got "${raw}"`);
-      }
-      return Number(match[1]) * 60 + Number(match[2]);
     },
     list(name: string): string[] {
       return (optional(name) ?? '').split(',').map((s) => s.trim()).filter(Boolean);

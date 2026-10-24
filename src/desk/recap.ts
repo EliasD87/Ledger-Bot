@@ -1,9 +1,9 @@
-import type { DataDesk, FlowReport, MacroReport, MarketReport } from '../desk/desk.js';
-import type { Purchase } from '../desk/treasuries.js';
+import type { Desk, FlowReport, MacroReport, MarketReport } from './desk.js';
+import type { Purchase } from './treasuries.js';
 import { log } from '../log.js';
 
-/** The tape section of Today's Page. Sections SoSoValue couldn't supply are left out. */
-export interface LedgerSummary {
+/** The latest tape in one go: flows, BTC buys, macro, the market board. Sections without data are left out. */
+export interface Recap {
   flows: FlowReport[];
   treasuryBuys: Purchase[];
   /** False until the first background scan of company purchases finishes. */
@@ -24,11 +24,11 @@ const LEDGER_FLOWS: { asset: string; withFunds: boolean }[] = [
  * Gathers every section at once. With `timeoutMs` (chat), a section still loading by then is left
  * out and named in `pending`; its request keeps running and fills the cache for the next ask.
  */
-export async function buildLedger(desk: DataDesk, opts: { timeoutMs?: number } = {}): Promise<LedgerSummary & { pending: string[] }> {
+export async function buildRecap(desk: Desk, opts: { timeoutMs?: number } = {}): Promise<Recap & { pending: string[] }> {
   const pending: string[] = [];
   const section = async <T>(name: string, load: () => Promise<T>): Promise<T | null> => {
     const loading = load().catch((err: unknown) => {
-      log.warn(`Today's Page: ${name} unavailable`, err);
+      log.warn(`Recap: ${name} unavailable`, err);
       return null;
     });
     if (!opts.timeoutMs) return loading;

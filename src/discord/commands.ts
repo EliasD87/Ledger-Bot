@@ -7,61 +7,44 @@ import {
   PermissionFlagsBits,
   SlashCommandBuilder,
 } from 'discord.js';
-import { type AlertRequest, createAlert, describeAlert } from '../alerts/service.js';
+import { type AlertDepsForCreate, type AlertRequest, createAlert, describeAlert } from '../alerts/service.js';
 import type { AlertStore } from '../alerts/store.js';
-import type { CallKind, Direction } from '../calls/odds.js';
-import type { BinanceFeed } from '../calls/prices.js';
-import { type CallRequest, type PriceSource, callHeadline, draftCall, refusalText } from '../calls/service.js';
-import type { Settler } from '../calls/settle.js';
-import { type Board, seasonStart } from '../calls/store.js';
 import type { Config } from '../config.js';
-import type { DailyStore } from '../daily/store.js';
-import { type DataDesk, ETF_ASSETS } from '../desk/desk.js';
-import { count, discordTime, formatPoints, monthLabel, parseDuration } from '../format.js';
+import { type Desk, ETF_ASSETS } from '../desk/desk.js';
+import { count } from '../format.js';
 import type { ChatModel } from '../llm/deepseek.js';
 import type { Spend } from '../llm/guards.js';
 import { log } from '../log.js';
+import type { Members } from '../members.js';
 import { RETENTION_DAYS } from '../memory/archive.js';
 import { summarize } from '../memory/summarize.js';
 import { COMMAND_PILLAR, type Metrics } from '../metrics.js';
 import type { Activity } from '../pages/myPage.js';
-import { refreshCard } from './announcer.js';
-import { handleCallButton } from './callButtons.js';
-import { draftCard } from './callCards.js';
-import { handleDailyButton } from './dailyButtons.js';
+import type { Measure } from '../theses/measure.js';
+import { type TakeDeps, draftTake } from '../theses/service.js';
+import type { ThesisStore } from '../theses/store.js';
 import { flowsCard, macroCard, marketCard, newsCard, treasuriesCard } from './deskCards.js';
 import type { ServerMemory } from './memory.js';
 import { handlePageInteraction, showMyPage } from './pageButtons.js';
-import { callLink, myPageButton, receiptsContainer } from './pageCards.js';
+import { myPageButton } from './pageCards.js';
 import { postableReply } from './text.js';
+import { handleThesisButton } from './thesisButtons.js';
+import { boardContainer, recordContainer, thesisCard } from './thesisCards.js';
 import { ACCENT, card, cards, kicker, replyWithCards, row } from './ui.js';
 import { handleWatchButton, watchButton } from './watchButtons.js';
 
 const DAY = 24 * 60 * 60 * 1000;
-const FEED_DOWN = "Price feed isn't answering, or the asset is too new to price. Try again later.";
 
 const guildCommand = (name: string, description: string) =>
   new SlashCommandBuilder().setName(name).setDescription(description).setContexts(InteractionContextType.Guild);
 
-/**
- * The whole surface: 7 member commands and 2 admin commands. Everything else is a button on a card,
- * or a sentence to @Ledger.
- */
+/** The surface: takes first, then the watchlist and the tape. Everything else is a button or a sentence to @Ledger. */
 export const commandData = [
-  guildCommand('ledger', 'Your page: what changed for you since you last looked'),
-  guildCommand('call', 'Put a price call on the record')
-    .addStringOption((o) => o.setName('asset').setDescription('Ticker, e.g. BTC, ETH, SOL').setRequired(true))
-    .addStringOption((o) =>
-      o.setName('direction').setDescription('Above or below the target').setRequired(true).addChoices({ name: 'above', value: 'above' }, { name: 'below', value: 'below' }),
-    )
-    .addNumberOption((o) => o.setName('target').setDescription('Target price in USD').setRequired(true).setMinValue(0))
-    .addStringOption((o) => o.setName('within').setDescription('Time window, e.g. 6h, 3d, 2w (1h to 90d)').setRequired(true))
-    .addStringOption((o) =>
-      o
-        .setName('type')
-        .setDescription('touch: hits the target any time (default). close: is past it at the deadline.')
-        .addChoices({ name: 'touch', value: 'touch' }, { name: 'close', value: 'close' }),
-    ),
+  guildCommand('ledger', 'Your takes: open theses, verdicts, debates you joined, your watchlist'),
+  guildCommand('take', 'Bring a take: Ledger argues it out with real data')
+    .addStringOption((o) => o.setName('take').setDescription('e.g. "SOL beats ETH this month", "NVDA up 10% by December"').setRequired(true).setMaxLength(300)),
+  guildCommand('takes', "Someone's record of takes, or the server's open debates")
+    .addUserOption((o) => o.setName('member').setDescription('Whose record (default: the open debates)')),
   guildCommand('watch', 'Your watchlist: DMs when something you follow happens')
     .addSubcommand((s) =>
       s
@@ -109,7 +92,7 @@ export const commandData = [
         .setDescription('Stop one watch')
         .addIntegerOption((o) => o.setName('id').setDescription('Number from /watch list').setRequired(true)),
     ),
-  guildCommand('tape', 'The numbers: ETF flows, macro, BTC buys, news, market (SoSoValue)')
+  guildCommand('tape', 'The numbers: ETF flows, macro, BTC buys, news, market')
     .addStringOption((o) =>
       o
         .setName('topic')
@@ -124,43 +107,36 @@ export const commandData = [
         ),
     )
     .addStringOption((o) => o.setName('asset').setDescription('For flows and news, e.g. ETH (default BTC / hottest news)')),
-  guildCommand('receipts', "A member's record").addUserOption((o) => o.setName('member').setDescription('Whose (default: yours)')),
-  guildCommand('board', 'Standings and open calls').addStringOption((o) =>
-    o
-      .setName('view')
-      .setDescription('Season (default), all time, or open calls')
-      .addChoices({ name: 'season', value: 'season' }, { name: 'all-time', value: 'all-time' }, { name: 'open calls', value: 'open' }),
-  ),
   guildCommand('recall', 'What people said about a topic (only you see it)')
     .addStringOption((o) => o.setName('topic').setDescription('e.g. SOL, the mint, airdrop').setRequired(true))
     .addIntegerOption((o) => o.setName('days').setDescription('How far back (default 7)').setMinValue(1).setMaxValue(30)),
-  guildCommand('ledger-setup', "Set Ledger's channel: Today's Page and big prints (admins)")
+  guildCommand('ledger-setup', "Ledger's channel for big market prints, and the recall archive (admins)")
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
-    .addChannelOption((o) => o.setName('channel').setDescription('The Ledger channel').addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement))
+    .addChannelOption((o) => o.setName('channel').setDescription('Where big prints go').addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement))
     .addBooleanOption((o) => o.setName('archive').setDescription(`Keep ${RETENTION_DAYS} days of messages for server-wide /recall`))
-    .addBooleanOption((o) => o.setName('off').setDescription("Stop Today's Page and prints")),
-  guildCommand('ledger-admin', 'Engagement numbers, or void a call (admins)')
+    .addBooleanOption((o) => o.setName('off').setDescription('Stop the prints')),
+  guildCommand('ledger-admin', 'Engagement numbers, or void a thesis (admins)')
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .addSubcommand((s) => s.setName('stats').setDescription('Habit numbers for this server'))
     .addSubcommand((s) =>
       s
         .setName('void')
-        .setDescription('Void a call: every position goes back to zero')
-        .addIntegerOption((o) => o.setName('call').setDescription('Call number').setRequired(true).setMinValue(1))
+        .setDescription('Void a thesis (bad data, a mistake)')
+        .addIntegerOption((o) => o.setName('thesis').setDescription('Thesis number').setRequired(true).setMinValue(1))
         .addStringOption((o) => o.setName('reason').setDescription('Why, shown on the card').setRequired(true)),
     ),
 ].map((command) => command.toJSON());
 
 export interface CommandDeps {
   config: Config;
-  feed: PriceSource;
-  /** Batched live prices for Your Page. */
-  prices: Pick<BinanceFeed, 'change24h'>;
-  board: Board;
-  settler: Settler;
-  daily: DailyStore;
+  /** Ticker lookups and spot prices for the watchlist. */
+  feed: AlertDepsForCreate['feed'];
+  members: Members;
+  theses: ThesisStore;
+  take: TakeDeps;
+  measure: Measure;
   /** Null without a SoSoValue key. */
-  desk: DataDesk | null;
+  desk: Desk | null;
   alerts: AlertStore;
   memory: ServerMemory;
   activity: Activity;
@@ -171,17 +147,18 @@ export interface CommandDeps {
 }
 
 export async function handleInteraction(interaction: Interaction, deps: CommandDeps): Promise<void> {
-  const pageDeps = { ...deps, prices: deps.prices };
   if (interaction.isButton() || interaction.isChannelSelectMenu()) {
     const id = interaction.customId;
-    if (id.startsWith('page:')) return handlePageInteraction(interaction, pageDeps);
+    if (id.startsWith('page:')) return handlePageInteraction(interaction, deps);
     if (!interaction.isButton()) return;
     if (id.startsWith('watch:')) return handleWatchButton(interaction, { store: deps.alerts, feed: deps.feed, desk: deps.desk, metrics: deps.metrics });
-    if (id.startsWith('daily:')) return handleDailyButton(interaction, deps);
-    return handleCallButton(interaction, deps);
+    if (id.startsWith('thesis:')) return handleThesisButton(interaction, deps);
+    // Buttons on cards from the old design (calls, the daily question) no longer do anything.
+    await interaction.reply({ flags: MessageFlags.Ephemeral, content: "That card is from Ledger's old design. Bring a take instead: /take or @Ledger." });
+    return;
   }
   if (!interaction.isChatInputCommand() || !interaction.inCachedGuild()) return;
-  deps.board.remember(interaction.user.id, interaction.member.displayName);
+  deps.members.remember(interaction.user.id, interaction.member.displayName);
   deps.metrics.record({
     type: 'command',
     guildId: interaction.guildId,
@@ -191,70 +168,58 @@ export async function handleInteraction(interaction: Interaction, deps: CommandD
   });
   switch (interaction.commandName) {
     case 'ledger':
-      return showMyPage(interaction, pageDeps, interaction.guildId, 'command');
-    case 'call':
-      return call(interaction, deps);
+      return showMyPage(interaction, deps, interaction.guildId, 'command');
+    case 'take':
+      return take(interaction, deps);
+    case 'takes':
+      return takes(interaction, deps);
     case 'watch':
       return watch(interaction, deps);
     case 'tape':
       return tape(interaction, deps);
-    case 'receipts': {
-      const member = interaction.options.getMember('member') ?? interaction.member;
-      deps.board.remember(member.id, member.displayName);
-      await interaction.reply(cards([receiptsContainer(deps.board, deps.daily, interaction.guildId, { id: member.id, name: member.displayName }, Date.now())]));
-      return;
-    }
-    case 'board':
-      return board(interaction, deps);
     case 'recall':
       return recall(interaction, deps);
     case 'ledger-setup':
       return setup(interaction, deps);
     case 'ledger-admin':
-      return interaction.options.getSubcommand() === 'void' ? voidCall(interaction, deps) : stats(interaction, deps);
+      return interaction.options.getSubcommand() === 'void' ? voidThesis(interaction, deps) : stats(interaction, deps);
   }
 }
 
-function readCallOptions(interaction: ChatInputCommandInteraction): CallRequest | string {
-  const windowMs = parseDuration(interaction.options.getString('within', true));
-  if (windowMs === null) return 'Give me a window like `6h`, `3d` or `2w`.';
-  return {
-    asset: interaction.options.getString('asset', true),
-    direction: interaction.options.getString('direction', true) as Direction,
-    target: interaction.options.getNumber('target', true),
-    windowMs,
-    kind: (interaction.options.getString('type') ?? 'touch') as CallKind,
-  };
-}
-
-async function call(interaction: ChatInputCommandInteraction<'cached'>, { feed, board }: CommandDeps): Promise<void> {
-  const request = readCallOptions(interaction);
-  if (typeof request === 'string') {
-    await interaction.reply({ flags: MessageFlags.Ephemeral, content: request });
+/** /take: the same stress test as @Ledger, posted publicly with its Log it button. */
+async function take(interaction: ChatInputCommandInteraction<'cached'>, deps: CommandDeps): Promise<void> {
+  if (deps.spend.today() >= deps.config.guards.dailyBudgetUsd) {
+    await interaction.reply({ flags: MessageFlags.Ephemeral, content: "That's it for today: my daily budget is spent. Try again after 00:00 UTC." });
     return;
   }
   await interaction.deferReply();
-  let result;
-  try {
-    const who = { guildId: interaction.guildId, channelId: interaction.channelId, callerId: interaction.user.id };
-    result = await draftCall(feed, board, who, request, Date.now());
-  } catch {
-    await interaction.editReply(FEED_DOWN);
-    return;
-  }
-  if (!result.call) {
-    const { priced } = result;
+  const text = interaction.options.getString('take', true);
+  const result = await draftTake(deps.take, { guildId: interaction.guildId, channelId: interaction.channelId, userId: interaction.user.id, name: interaction.member.displayName }, text).catch(
+    (err: unknown) => {
+      log.warn('/take failed', err);
+      return { ok: false as const, reason: 'failed' as const, message: "Couldn't pull the data right now. Try again in a minute." };
+    },
+  );
+  if (!result.ok) {
     await interaction.editReply(
-      !priced
-        ? `No live USDT market for \`${request.asset}\` on my feed. Crypto only, for now.`
-        : priced.quote.ok
-          ? FEED_DOWN
-          : refusalText(priced.quote, priced.base, priced.spot),
+      result.reason === 'not-a-take' ? `That doesn't read as a take on where a market goes. Try something like "SOL beats ETH this month".` : result.message,
     );
     return;
   }
-  const message = await replyWithCards(interaction, draftCard(result.call));
-  board.attachMessage(result.call.id, interaction.channelId, message.id);
+  const message = await replyWithCards(interaction, thesisCard(result.thesis, { with: [], against: [] }));
+  deps.theses.attachMessage(result.thesis.id, interaction.channelId, message.id);
+}
+
+/** /takes: a member's record, or the server's open debates and best records. */
+async function takes(interaction: ChatInputCommandInteraction<'cached'>, { theses, members }: CommandDeps): Promise<void> {
+  const member = interaction.options.getMember('member');
+  if (member) {
+    members.remember(member.id, member.displayName);
+    await interaction.reply(cards([recordContainer(member.displayName, theses.record(interaction.guildId, member.id))]));
+    return;
+  }
+  const open = theses.open(interaction.guildId).map((t) => ({ t, sides: theses.sides(t.id) }));
+  await interaction.reply(cards([boardContainer(open, theses.leaders(interaction.guildId, 0))]));
 }
 
 async function watch(interaction: ChatInputCommandInteraction<'cached'>, { alerts, feed, desk }: CommandDeps): Promise<void> {
@@ -300,7 +265,7 @@ async function watch(interaction: ChatInputCommandInteraction<'cached'>, { alert
   }
 }
 
-/** /tape: SoSoValue numbers as a public card, with a one-tap watch where one fits. */
+/** /tape: the stored market numbers as a public card, with a one-tap watch where one fits. */
 async function tape(interaction: ChatInputCommandInteraction<'cached'>, { desk }: CommandDeps): Promise<void> {
   if (!desk) {
     await interaction.reply({ flags: MessageFlags.Ephemeral, content: 'The tape needs a SoSoValue API key (SOSOVALUE_API_KEY).' });
@@ -317,7 +282,7 @@ async function tape(interaction: ChatInputCommandInteraction<'cached'>, { desk }
       const report = await desk.flows(which);
       tapeCard = report
         ? flowsCard(report, row(watchButton({ kind: 'flows', asset: report.asset }), page))
-        : card(ACCENT.muted, [`No US spot ETF flow data for ${which}.`, kicker(`Try: ${ETF_ASSETS.join(', ')}`)]);
+        : card(ACCENT.muted, [`No US spot ETF flow data for ${which} yet.`, kicker(`Try: ${ETF_ASSETS.join(', ')}`)]);
     } else if (topic === 'macro') {
       tapeCard = macroCard(await desk.macro(), row(page));
     } else if (topic === 'buys') {
@@ -330,49 +295,8 @@ async function tape(interaction: ChatInputCommandInteraction<'cached'>, { desk }
     await replyWithCards(interaction, cards([tapeCard]));
   } catch (err) {
     log.warn(`/tape ${topic} failed`, err);
-    await interaction.editReply("SoSoValue isn't answering right now. Try again in a minute.");
+    await interaction.editReply("Couldn't read the tape right now. Try again in a minute.");
   }
-}
-
-async function board(interaction: ChatInputCommandInteraction<'cached'>, { board }: CommandDeps): Promise<void> {
-  const view = interaction.options.getString('view') ?? 'season';
-  const now = Date.now();
-  if (view === 'open') {
-    const open = board.openCalls(interaction.guildId);
-    const lines = open.slice(0, 15).map((c) => {
-      const positions = board.positions(c.id).filter((p) => p.userId !== c.callerId);
-      const agree = positions.filter((p) => p.side === 'back').length;
-      return `${callLink(c)} ${callHeadline(c)} ${c.kind === 'touch' ? 'by' : 'at'} ${discordTime(c.deadline, 'R')} · <@${c.callerId}> · ${agree} agree, ${positions.length - agree} disagree`;
-    });
-    await interaction.reply(
-      cards([
-        card(ACCENT.open, [
-          `## 📒 Open calls · ${open.length}`,
-          lines.length ? lines.join('\n') : 'No open calls.',
-          open.length > 15 && kicker(`+${open.length - 15} more`),
-          !lines.length && kicker('Make one: /call or @Ledger I call BTC hits 90k by Friday'),
-        ]),
-      ]),
-    );
-    return;
-  }
-  const allTime = view === 'all-time';
-  const standings = board.leaderboard(interaction.guildId, allTime ? 0 : seasonStart(now));
-  const medals = ['🥇', '🥈', '🥉'];
-  const line = (s: (typeof standings)[number], i: number) =>
-    `${medals[i] ?? `\`${String(i + 1).padStart(2)}\``}  <@${s.userId}>  **${formatPoints(s.points)}**  ·  ${s.wins}–${s.losses}${s.dailyPoints ? `  ·  daily ${formatPoints(s.dailyPoints)}` : ''}`;
-  const lines = standings.slice(0, 10).map(line);
-  const mine = standings.findIndex((s) => s.userId === interaction.user.id);
-  if (mine >= 10) lines.push('⋯', line(standings[mine]!, mine));
-  await interaction.reply(
-    cards([
-      card(ACCENT.page, [
-        `## 📒 ${allTime ? 'All-time board' : `${monthLabel(now)} board`}`,
-        lines.length ? lines.join('\n') : "Nobody's on the board yet. Make a call to get on it.",
-        kicker('Rep = call scores (result minus rating) + daily answers · agree/disagree is recorded, not scored'),
-      ]),
-    ]),
-  );
 }
 
 /** /recall: a private summary of what people said about a topic, only from channels the member can read. */
@@ -397,15 +321,15 @@ async function recall(interaction: ChatInputCommandInteraction<'cached'>, { memo
       spend.record({ purpose: 'recall', model: llm.model, userId: interaction.user.id, guildId: interaction.guildId, usage }),
     );
     const where = found.channelName === 'the whole server' ? 'the server' : `#${found.channelName}`;
-    await interaction.editReply(`📒 **${topic}** · ${count(found.count, 'message')} in ${where}\n${postableReply(summary)}`.slice(0, 2000));
+    await interaction.editReply(`**${topic}** · ${count(found.count, 'message')} in ${where}\n${postableReply(summary)}`.slice(0, 2000));
   } catch (err) {
     log.warn('/recall failed', err);
     await interaction.editReply("Couldn't read the history right now. Try again in a minute.");
   }
 }
 
-/** /ledger-setup: one channel for Today's Page and big prints; optionally the recall archive. */
-async function setup(interaction: ChatInputCommandInteraction<'cached'>, { daily, alerts, memory, config }: CommandDeps): Promise<void> {
+/** /ledger-setup: a channel for big market prints (at most 2 a day); optionally the recall archive. */
+async function setup(interaction: ChatInputCommandInteraction<'cached'>, { alerts, memory }: CommandDeps): Promise<void> {
   const now = Date.now();
   const notes: string[] = [];
   const archive = interaction.options.getBoolean('archive');
@@ -418,9 +342,8 @@ async function setup(interaction: ChatInputCommandInteraction<'cached'>, { daily
     );
   }
   if (interaction.options.getBoolean('off')) {
-    daily.setChannel(interaction.guildId, null, now);
     alerts.setChannel(interaction.guildId, null, now);
-    await interaction.reply({ flags: MessageFlags.Ephemeral, content: ["Ledger is off here: no Today's Page, no prints. Open questions still resolve.", ...notes].join('\n') });
+    await interaction.reply({ flags: MessageFlags.Ephemeral, content: ['Prints are off here.', ...notes].join('\n') });
     return;
   }
   const channel = interaction.options.getChannel('channel');
@@ -429,23 +352,15 @@ async function setup(interaction: ChatInputCommandInteraction<'cached'>, { daily
     return;
   }
   const me = interaction.guild.members.me;
-  const needed = [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.EmbedLinks];
+  const needed = [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages];
   if (me && 'permissionsFor' in channel && !channel.permissionsFor(me)?.has(needed)) {
-    await interaction.reply({
-      flags: MessageFlags.Ephemeral,
-      content: `I can't post in <#${channel.id}>. Give Ledger View Channel, Send Messages and Embed Links there, then run this again.`,
-    });
+    await interaction.reply({ flags: MessageFlags.Ephemeral, content: `I can't post in <#${channel.id}>. Give Ledger View Channel and Send Messages there, then run this again.` });
     return;
   }
-  daily.setChannel(interaction.guildId, channel.id, now);
   alerts.setChannel(interaction.guildId, channel.id, now);
-  const close = `${String(Math.floor(config.dailyCloseMinuteUtc / 60)).padStart(2, '0')}:${String(config.dailyCloseMinuteUtc % 60).padStart(2, '0')}`;
   await interaction.reply({
     flags: MessageFlags.Ephemeral,
-    content: [
-      `📒 Ledger channel: <#${channel.id}>. Today's Page posts there within a minute, then every day at ${close} UTC. Big prints (at most 2 a day) post there too. Nobody gets pinged.`,
-      ...notes,
-    ].join('\n'),
+    content: [`Big market prints (large ETF days, big BTC buys, major macro, ±5% days) go to <#${channel.id}>, at most 2 a day. Nobody gets pinged.`, ...notes].join('\n'),
   });
 }
 
@@ -457,28 +372,32 @@ async function stats(interaction: ChatInputCommandInteraction<'cached'>, { metri
   await interaction.reply({
     flags: MessageFlags.Ephemeral,
     content: [
-      '📒 **Ledger stats** · last 7 days',
-      `**${h.weekActive} of ${members} members** used Ledger (${pct(h.weekActive, members)}) · returning (3+ of 8 days): **${h.returning}** · using 2+ parts (calls/answers, tape, watchlist, memory): **${h.multiPillar}**`,
-      `Page opens ${h.pageOpens} · answers ${h.answers} · calls ${h.callsLocked} · agree/disagree ${h.leans} · watches added ${h.watchAdds} · button taps ${h.buttons}`,
+      '⚖️ **Ledger stats** · last 7 days',
+      `**${h.weekActive} of ${members} members** used Ledger (${pct(h.weekActive, members)}) · returning (3+ of 8 days): **${h.returning}** · using 2+ parts (takes, tape, watchlist, memory): **${h.multiPillar}**`,
+      `Takes stress-tested ${h.stressTests} · logged ${h.logged} · sides taken ${h.sides} · page opens ${h.pageOpens} · watches added ${h.watchAdds} · button taps ${h.buttons}`,
       `Chat: ${count(h.chatMessages, 'message')}, ${h.chatWithTools} with tools · 30-day actives ${h.monthActive} · DAU/MAU ${pct(h.avgDailyActive, h.monthActive)}`,
       `DeepSeek: $${spend.since(now - 7 * DAY).toFixed(3)} this week (cap $${config.guards.dailyBudgetUsd.toFixed(2)}/day) · $${spend.since(0).toFixed(3)} all time` +
-        (desk ? ` · SoSoValue: ${desk.requestsThisMonth.toLocaleString('en-US')} requests this month since restart` : ''),
+        (desk ? ` · SoSoValue: ${desk.requestsThisMonth.toLocaleString('en-US')} of 100,000 requests this month` : ''),
     ].join('\n'),
   });
 }
 
-async function voidCall(interaction: ChatInputCommandInteraction<'cached'>, { board }: CommandDeps): Promise<void> {
-  const id = interaction.options.getInteger('call', true);
+async function voidThesis(interaction: ChatInputCommandInteraction<'cached'>, { theses }: CommandDeps): Promise<void> {
+  const id = interaction.options.getInteger('thesis', true);
   const reason = interaction.options.getString('reason', true);
-  const call = board.get(id);
-  if (!call || call.guildId !== interaction.guildId) {
-    await interaction.reply({ flags: MessageFlags.Ephemeral, content: `No call #${id} on this server.` });
+  const t = theses.get(id);
+  if (!t || t.guildId !== interaction.guildId) {
+    await interaction.reply({ flags: MessageFlags.Ephemeral, content: `No thesis #${id} on this server.` });
     return;
   }
-  if (!board.void(id, reason, Date.now())) {
-    await interaction.reply({ flags: MessageFlags.Ephemeral, content: `Call #${id} is ${call.status}; nothing to void.` });
+  if (!theses.void(id, reason, Date.now())) {
+    await interaction.reply({ flags: MessageFlags.Ephemeral, content: `Thesis #${id} is already closed.` });
     return;
   }
-  await refreshCard(interaction.client, board, id);
-  await interaction.reply({ flags: MessageFlags.Ephemeral, content: `Call #${id} voided. Every position on it is back to zero.` });
+  if (t.messageId) {
+    const channel = await interaction.client.channels.fetch(t.channelId).catch(() => null);
+    const message = channel?.isTextBased() ? await channel.messages.fetch(t.messageId).catch(() => null) : null;
+    await message?.edit(thesisCard(theses.get(id)!, theses.sides(id))).catch(() => {});
+  }
+  await interaction.reply({ flags: MessageFlags.Ephemeral, content: `Thesis #${id} voided: ${reason}.` });
 }

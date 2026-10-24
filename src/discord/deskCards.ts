@@ -1,13 +1,7 @@
-import { type ContainerBuilder, EmbedBuilder } from 'discord.js';
-import { callHeadline } from '../calls/service.js';
-import type { PageBook } from '../daily/book.js';
-import type { LedgerSummary } from '../daily/ledger.js';
-import { dayLabel, signedPct } from '../daily/questions.js';
-import { type FlowReport, type MacroReport, type MarketReport, leadingFund } from '../desk/desk.js';
+import type { ContainerBuilder } from 'discord.js';
+import type { FlowReport, MacroReport, MarketReport } from '../desk/desk.js';
 import type { Purchase } from '../desk/treasuries.js';
-import { discordTime, formatPoints, formatUsd } from '../format.js';
-import { difficulty } from './callCards.js';
-import { callLink } from './pageCards.js';
+import { dayLabel, discordTime, formatUsd, signedPct } from '../format.js';
 import type { NewsItem } from '../sosovalue.js';
 import { ACCENT, type CardPart, card, divider, heading, kicker } from './ui.js';
 
@@ -87,62 +81,6 @@ export function marketCard(r: MarketReport, buttons?: CardPart): ContainerBuilde
     kicker('Sectors over the last 24 hours'),
     buttons,
   ]);
-}
-
-/**
- * Today's Page: the shared daily post. How the room did, what the market printed (skipping anything
- * unchanged since the last page), and the calls settled and due. Posted with each new question.
- */
-export function todaysPageEmbed(s: LedgerSummary | null, now: number, book: PageBook | null): EmbedBuilder | null {
-  const today = new Date(now).toISOString().slice(0, 10);
-  const embed = new EmbedBuilder().setColor(0x2b2d31).setTitle(`📒 Today's Page · ${dayLabel(today)}`);
-
-  const v = book?.verdict;
-  if (v) {
-    const [a, b] = v.q.spec.options;
-    const answer = v.q.answer === 'a' ? a : b;
-    const room =
-      v.roomRight === null
-        ? `${v.counts.a + v.counts.b} answered (${a} ${v.counts.a} · ${b} ${v.counts.b}).`
-        : `Room said ${v.counts.a > v.counts.b ? a : b} ${Math.max(v.counts.a, v.counts.b)}–${Math.min(v.counts.a, v.counts.b)}: ${v.roomRight ? 'right' : 'missed'}.`;
-    const season = book.roomSeason.total ? ` Room this month: ${book.roomSeason.right} of ${book.roomSeason.total}.` : '';
-    embed.addFields({ name: `Room vs tape · ${dayLabel(v.q.spec.day)}`, value: `${v.q.spec.prompt} **${answer}**. ${v.q.resultText ?? ''}\n${room}${season}` });
-  }
-
-  if (s?.flows.length) {
-    const session = s.flows[0]!.latest.date;
-    const yesterday = new Date(now - 86_400_000).toISOString().slice(0, 10);
-    if (session < yesterday) {
-      embed.addFields({ name: 'Spot ETF flows', value: `No new US session since ${dayLabel(session)}.` });
-    } else {
-      const lines = s.flows.map((f) => {
-        const lead = leadingFund(f);
-        const streak = f.streak.days >= 2 ? ` · ${ordinal(f.streak.days)} day of ${f.latest.totalNetInflow! > 0 ? 'inflows' : 'outflows'}` : '';
-        return `**${f.asset}** ${formatUsd(f.latest.totalNetInflow!, true)}${streak}${lead ? ` · led by ${lead.ticker} ${formatUsd(lead.netInflow, true)}` : ''}`;
-      });
-      embed.addFields({ name: `Spot ETF flows · ${dayLabel(session)}`, value: lines.join('\n') });
-    }
-  }
-  // Until the first treasury scan finishes, "none reported" would be wrong, so leave the section out.
-  if (s?.treasuriesReady && s.treasuryBuys.length) {
-    embed.addFields({ name: 'Corporate BTC buys · last 7 days', value: s.treasuryBuys.slice(0, 4).map(purchaseLine).join('\n') });
-  }
-  if (s?.macro?.today.length) embed.addFields({ name: 'Macro today', value: s.macro.today.map(releaseLine).join('\n') });
-  if (s?.macro?.fomc) embed.addFields({ name: `FOMC ${dayLabel(s.macro.fomc.meetingDate)}`, value: fomcLine(s.macro.fomc) });
-  const market = s?.market && marketLine(s.market);
-  if (market) embed.addFields({ name: 'Market', value: market });
-
-  if (book && (book.settled.length || book.due.length || book.leaders.length)) {
-    const lines = [
-      ...book.settled.map((c) => `${c.status === 'won' ? '✓' : '✗'} ${callLink(c)} ${callHeadline(c)} · <@${c.callerId}> (${difficulty(c.chance)})`),
-      ...book.due.map((c) => `⏳ ${callLink(c)} ${callHeadline(c)} · <@${c.callerId}> · ends ${discordTime(c.deadline, 'R')}`),
-    ];
-    const medals = ['🥇', '🥈', '🥉'];
-    if (book.leaders.length) lines.push(`Season: ${book.leaders.map((l, i) => `${medals[i]} <@${l.userId}> ${formatPoints(l.points)}`).join(' · ')}`);
-    embed.addFields({ name: 'Calls', value: lines.join('\n').slice(0, 1024) });
-  }
-  if (!embed.data.fields?.length) return null;
-  return embed.setFooter({ text: `${s ? 'Market data: SoSoValue. ' : ''}Reply to this post to ask about it. Points are reputation, not money.` });
 }
 
 function streakLine(r: FlowReport): string {

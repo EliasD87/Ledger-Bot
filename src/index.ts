@@ -2,30 +2,32 @@ import { createHash } from 'node:crypto';
 import { type Client, Events, GatewayCloseCodes, type Guild } from 'discord.js';
 import { AlertStore } from './alerts/store.js';
 import { AlertWatcher } from './alerts/watcher.js';
+import { EvidenceBuilder } from './analysis/evidence.js';
+import { MarketHistory } from './analysis/history.js';
 import { BinanceFeed } from './calls/prices.js';
-import { Settler } from './calls/settle.js';
-import { Board } from './calls/store.js';
 import { loadConfig } from './config.js';
-import { buildLedger } from './daily/ledger.js';
-import { DailyRunner } from './daily/runner.js';
-import { DailyStore } from './daily/store.js';
 import { openDb } from './db/index.js';
 import { DataDesk } from './desk/desk.js';
+import { StoredDesk, TapeRefresher, TapeStore } from './desk/tape.js';
 import { TreasuryWatcher } from './desk/treasuries.js';
 import { DiscordAlertNotifier } from './discord/alertNotifier.js';
-import { announceSettlement, expireDrafts } from './discord/announcer.js';
 import { createClient, inviteLink } from './discord/client.js';
 import { commandData, handleInteraction } from './discord/commands.js';
 import { Conversation } from './discord/conversation.js';
-import { DiscordDailyPoster } from './discord/dailyPoster.js';
 import { ServerMemory } from './discord/memory.js';
+import { announceVerdicts, expireDrafts } from './discord/thesisButtons.js';
 import { DeepSeek } from './llm/deepseek.js';
 import { RateLimiter, Spend } from './llm/guards.js';
 import { log, setLogLevel } from './log.js';
+import { Members } from './members.js';
 import { MessageArchive } from './memory/archive.js';
-import { Activity, buildMyPage } from './pages/myPage.js';
 import { Metrics, ReplyIndex } from './metrics.js';
+import { Activity, buildMyPage } from './pages/myPage.js';
+import { CryptoQuotes, StockQuotes } from './quotes.js';
 import { SoSoValue } from './sosovalue.js';
+import { Measure, ThesisSettler } from './theses/measure.js';
+import type { TakeDeps } from './theses/service.js';
+import { ThesisStore } from './theses/store.js';
 import { ToolKit } from './tools.js';
 
 const config = loadConfig();
@@ -35,66 +37,68 @@ const db = openDb(config.dbPath);
 const metrics = new Metrics(db);
 const spend = new Spend(db);
 const feed = new BinanceFeed(config.priceFeedUrl);
-const board = new Board(db);
-const settler = new Settler(board, feed);
-const daily = new DailyStore(db);
 const soso = config.sosovalueApiKey ? new SoSoValue(config.sosovalueApiKey) : null;
-const desk = soso ? new DataDesk(soso, new TreasuryWatcher(soso)) : null;
-if (!soso) log.warn("No SOSOVALUE_API_KEY: the tape and ETF-flow questions are off; Today's Page posts without the tape.");
+// Only the refresher talks to SoSoValue (on a schedule, inside the monthly cap); everything else reads its stored results.
+const tape = new TapeStore(db);
+const desk = soso ? new StoredDesk(tape) : null;
+const treasuries = soso ? new TreasuryWatcher(soso) : null;
+const refresher = soso && treasuries ? new TapeRefresher({ tape, soso, live: new DataDesk(soso, treasuries), treasuries }) : null;
+if (!soso) log.warn('No SOSOVALUE_API_KEY: the tape, ETF flows and flow takes are off.');
 const alerts = new AlertStore(db);
 const archive = new MessageArchive(db);
 const memory = new ServerMemory(() => client, archive);
 const llm = new DeepSeek(config.llm);
 const activity = new Activity(db);
+const members = new Members(db);
+
+// The sparring partner: price history (with backups), evidence computed in code, takes and their check-backs.
+const crypto = new CryptoQuotes(feed);
+const stocks = new StockQuotes(desk);
+const history = new MarketHistory({ resolve: (asset) => crypto.resolve(asset), binance: feed });
+const evidence = new EvidenceBuilder({ history, desk });
+const theses = new ThesisStore(db);
+const measure = new Measure({ history, crypto, stocks, desk });
+const settler = new ThesisSettler({ store: theses, measure });
+const take: TakeDeps = { llm, evidence, theses, spend };
 
 const conversation = new Conversation({
   config,
   llm,
   tools: new ToolKit({
+    members,
+    theses,
+    take,
+    evidence,
+    measure,
     feed,
-    board,
-    daily,
     desk,
     alerts,
     memory,
-    myPage: (guildId, userId) => buildMyPage({ board, daily, alerts, activity, prices: feed, desk }, guildId, userId, Date.now()),
-    quotes: { crypto: feed, stocks: soso },
+    myPage: (guildId, userId) => buildMyPage({ theses, measure, alerts, activity }, guildId, userId, Date.now()),
+    quotes: { crypto, stocks },
   }),
-  board,
+  members,
+  theses,
   limiter: new RateLimiter(config.guards),
   spend,
   metrics,
   replies: new ReplyIndex(db),
 });
-const commandDeps = { config, feed, prices: feed, board, settler, daily, desk, alerts, memory, activity, llm, metrics, spend };
+const commandDeps = { config, feed, members, theses, take, measure, desk, alerts, memory, activity, llm, metrics, spend };
 
 let client: Client;
-let dailyRunner: DailyRunner | null = null;
 let alertWatcher: AlertWatcher | null = null;
-/** False until the recap data is cached after startup; the treasury scan waits for it so the two don't compete. */
-let deskWarm = !desk;
 
-/** Fetches everything the recap needs once, so the first "what moved yesterday?" after a restart is quick. */
-async function warmDesk(): Promise<void> {
-  if (!desk) return;
-  const started = Date.now();
-  await buildLedger(desk).catch((err) => log.warn('Warming the data desk failed', err));
-  deskWarm = true;
-  log.info(`Data desk warm in ${Math.round((Date.now() - started) / 1000)}s`);
+/** Brings the stored tape up to date in the background; after a restart only what's stale is fetched. */
+async function refreshTape(): Promise<void> {
+  const ran = (await refresher?.tick()) ?? [];
+  if (ran.length) log.debug(`Tape refreshed: ${ran.join(', ')} (SoSoValue ${tape.usage(Date.now()).toLocaleString('en-US')} requests this month)`);
 }
 let contentIntent = true;
 
 async function start(readContent: boolean): Promise<void> {
   contentIntent = readContent;
   client = createClient({ readContent });
-  dailyRunner = new DailyRunner({
-    store: daily,
-    candles: feed,
-    soso,
-    desk,
-    poster: new DiscordDailyPoster(client, daily, board),
-    closeMinute: config.dailyCloseMinuteUtc,
-  });
   alertWatcher = new AlertWatcher({ store: alerts, prices: feed, desk, notifier: new DiscordAlertNotifier(client, alerts) });
 
   client.once(Events.ClientReady, async (c) => {
@@ -107,7 +111,7 @@ async function start(readContent: boolean): Promise<void> {
           'Developer Portal → Bot → Privileged Gateway Intents → Message Content Intent; then restart Ledger.',
       );
     }
-    void warmDesk();
+    void refreshTape();
     await Promise.all(c.guilds.cache.map((guild) => registerCommands(guild)));
   });
   client.on(Events.GuildCreate, (guild) => void registerCommands(guild));
@@ -162,17 +166,16 @@ async function registerCommands(guild: Guild): Promise<void> {
   }
 }
 
-/** Once a minute: resolve calls, expire drafts, run the Daily Question and alerts, keep the treasury list fresh. */
+/** Once a minute: check back on due theses, expire unlogged stress tests, run alerts, refresh what's due on the tape. */
 async function tick(): Promise<void> {
   if (!client?.isReady()) return;
-  for (const settlement of await settler.tick()) {
-    log.info(`Call #${settlement.call.id} resolved: ${settlement.won ? 'right' : 'wrong'}`);
-    await announceSettlement(client, settlement).catch((err) => log.error(`Announcing call #${settlement.call.id} failed`, err));
-  }
-  await expireDrafts(client, board, Date.now());
-  await dailyRunner?.tick();
+  const { settled, voided } = await settler.tick();
+  for (const v of settled) log.info(`Thesis #${v.thesis.id} checked back: ${v.held ? 'aged well' : 'aged badly'}`);
+  for (const t of voided) log.warn(`Thesis #${t.id} voided: no data at the check-back`);
+  await announceVerdicts(client, theses, settled);
+  await expireDrafts(client, theses, Date.now());
   await alertWatcher?.tick();
-  if (deskWarm) void desk?.treasuries.refreshIfStale(3 * 60 * 60 * 1000); // background lane; a few minutes per scan
+  void refreshTape().catch((err) => log.warn('Tape refresh failed', err));
   if (Date.now() - lastPrune > 60 * 60 * 1000) {
     lastPrune = Date.now();
     archive.prune(lastPrune);

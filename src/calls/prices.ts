@@ -1,4 +1,3 @@
-import { dailyVolatility } from './odds.js';
 
 export interface Candle {
   openTime: number;
@@ -15,6 +14,8 @@ export interface CryptoStats {
   high: number;
   low: number;
   volumeUsd: number;
+  /** Where the numbers came from when it wasn't Binance. */
+  source?: string;
 }
 
 const HOUR = 60 * 60 * 1000;
@@ -38,7 +39,6 @@ export function normalizeAsset(input: string): string | null {
  */
 export class BinanceFeed {
   private symbols: { set: Set<string>; at: number } | null = null;
-  private readonly vols = new Map<string, { value: number; at: number }>();
 
   constructor(
     private readonly baseUrl: string,
@@ -102,20 +102,6 @@ export class BinanceFeed {
         },
       ]),
     );
-  }
-
-  /**
-   * Daily volatility for pricing: the larger of the last 30 and last 180 completed days, so a
-   * quiet month doesn't make big moves look cheap. Cached for an hour.
-   */
-  async dailyVol(symbol: string): Promise<number> {
-    const cached = this.vols.get(symbol);
-    if (cached && this.now() - cached.at < HOUR) return cached.value;
-    const days = await this.candles(symbol, '1d', { limit: 181 });
-    const closes = days.slice(0, -1).map((c) => c.close); // the last candle is today, still open
-    const value = Math.max(dailyVolatility(closes.slice(-31)), dailyVolatility(closes));
-    this.vols.set(symbol, { value, at: this.now() });
-    return value;
   }
 
   private async tradingSymbols(): Promise<Set<string>> {

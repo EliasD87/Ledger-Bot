@@ -8,11 +8,14 @@ import type { Metrics } from '../metrics.js';
 import { type PageDeps, buildMyPage } from '../pages/myPage.js';
 import { count, discordTime } from '../format.js';
 import type { ServerMemory } from './memory.js';
-import { howItWorks, myPageMessage, parsePageButtonId, receiptsContainer } from './pageCards.js';
+import type { Members } from '../members.js';
+import { howItWorks, myPageMessage, parsePageButtonId } from './pageCards.js';
+import { recordContainer } from './thesisCards.js';
 import { privateCards, replyWithCards } from './ui.js';
 import { postableReply } from './text.js';
 
 export interface PageInteractionDeps extends PageDeps {
+  members: Members;
   memory: ServerMemory;
   llm: ChatModel;
   spend: Spend;
@@ -35,11 +38,11 @@ export async function showMyPage(interaction: Opener, deps: PageInteractionDeps,
   }
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   const page = await buildMyPage(deps, guildId, interaction.user.id, Date.now());
-  deps.metrics.record({ type: 'page_open', guildId, channelId: interaction.channelId, userId: interaction.user.id, meta: { pillar: 'page', source } });
+  deps.metrics.record({ type: 'page_open', guildId, channelId: interaction.channelId, userId: interaction.user.id, meta: { pillar: 'takes', source } });
   await replyWithCards(interaction, myPageMessage(page, guildId, interaction.inGuild()), { ephemeral: true });
 }
 
-/** [My page], [Receipts], [How it works] and the catch-up channel picker. */
+/** [My takes], [My record], [How it works] and the catch-up channel picker. */
 export async function handlePageInteraction(interaction: ButtonInteraction | ChannelSelectMenuInteraction, deps: PageInteractionDeps): Promise<void> {
   const parsed = parsePageButtonId(interaction.customId);
   if (!parsed) return;
@@ -52,9 +55,9 @@ export async function handlePageInteraction(interaction: ButtonInteraction | Cha
     return;
   }
 
-  if (parsed.action === 'receipts') {
+  if (parsed.action === 'record') {
     const name = interaction.member && 'displayName' in interaction.member ? interaction.member.displayName : interaction.user.displayName;
-    await interaction.reply(privateCards([receiptsContainer(deps.board, deps.daily, guildId, { id: interaction.user.id, name }, Date.now())]));
+    await interaction.reply(privateCards([recordContainer(name, deps.theses.record(guildId, interaction.user.id))]));
     return;
   }
 
@@ -75,7 +78,7 @@ export async function handlePageInteraction(interaction: ButtonInteraction | Cha
       const summary = await summarize(deps.llm, found.transcript, `Catch the member up on #${found.channelName}: ${found.count} messages they missed.`, (usage) =>
         deps.spend.record({ purpose: 'catchup', model: deps.llm.model, userId: interaction.user.id, guildId, usage }),
       );
-      await interaction.editReply(`📒 **#${found.channelName}** · ${count(found.count, 'message')} since ${discordTime(found.since, 'R')}\n${postableReply(summary)}`.slice(0, 2000));
+      await interaction.editReply(`**#${found.channelName}** · ${count(found.count, 'message')} since ${discordTime(found.since, 'R')}\n${postableReply(summary)}`.slice(0, 2000));
     } catch (err) {
       log.warn('Catch-up failed', err);
       await interaction.editReply("Couldn't read that channel's history right now. Try again in a minute.");

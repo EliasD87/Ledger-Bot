@@ -13,7 +13,6 @@
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "backtest": "tsx scripts/backtest-odds.ts",
     "check": "tsx scripts/check-setup.ts",
     "chat-eval": "tsx scripts/chat-eval.ts",
     "preview": "tsx scripts/preview-cards.ts"

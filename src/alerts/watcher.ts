@@ -1,6 +1,6 @@
 import type { Candle } from '../calls/prices.js';
-import { dayLabel, signedPct } from '../daily/questions.js';
-import { type DataDesk, leadingFund } from '../desk/desk.js';
+import { dayLabel, signedPct } from '../format.js';
+import { type Desk, leadingFund } from '../desk/desk.js';
 import { formatPrice, formatUsd } from '../format.js';
 import { log } from '../log.js';
 import type { Alert, AlertStore } from './store.js';
@@ -45,7 +45,7 @@ export interface AlertDeps {
   store: AlertStore;
   prices: AlertPrices;
   /** Null without a SoSoValue key: flow, macro and BTC-buy watches stay quiet. */
-  desk: DataDesk | null;
+  desk: Desk | null;
   notifier: AlertNotifier;
   now?: () => number;
 }

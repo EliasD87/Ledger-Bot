@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { DataDesk, formatRateRange } from '../src/desk/desk.js';
 import { TreasuryWatcher } from '../src/desk/treasuries.js';
-import { todaysPageEmbed } from '../src/discord/deskCards.js';
+import { flowsCard, macroCard } from '../src/discord/deskCards.js';
 import { formatUsd } from '../src/format.js';
 import { SoSoValue, SoSoValueError, num } from '../src/sosovalue.js';
 
@@ -145,20 +145,14 @@ describe('DataDesk', () => {
     expect(r.fomc).toEqual({ meetingDate: '2026-10-28', ranges: [{ range: '3.50–3.75%', pct: 89.5 }, { range: '3.25–3.50%', pct: 10.5 }] });
   });
 
-  it('puts it all on the Daily Ledger card', async () => {
-    const card = todaysPageEmbed(
-      { flows: [(await desk.flows('BTC'))!], treasuryBuys: [], treasuriesReady: false, macro: await desk.macro(), market: null },
-      NOW,
-      null,
-    )!.toJSON();
-    const text = JSON.stringify(card);
-    expect(card.title).toBe("📒 Today's Page · Fri 23 Oct");
+  it('puts flows and macro on the tape cards', async () => {
+    const text = JSON.stringify([flowsCard((await desk.flows('BTC'))!).toJSON(), macroCard(await desk.macro()).toJSON()]);
+    expect(text).toContain('BTC ETFs');
     expect(text).toContain('+$300.0M');
-    expect(text).toContain('2nd day of inflows');
-    expect(text).toContain('led by IBIT +$350.0M');
-    expect(text).not.toContain('Corporate BTC buys'); // scan not finished yet
+    expect(text).toContain('2nd straight day of inflows');
+    expect(text).toContain('IBIT +$350.0M');
     expect(text).toContain('CPI (YoY) · **3.5%**');
-    expect(text).not.toMatch(/\bodds\b|\bpays?\b|stake|\bbet\b/i);
+    expect(text).not.toMatch(/odds|pays?|stake|bet/i);
   });
 });
 

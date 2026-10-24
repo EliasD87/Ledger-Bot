@@ -1,145 +1,87 @@
-# Ledger: The Book (one book, two pages)
+# Ledger: the sparring partner
 
-> "I don't call the market. I keep score."
+> Bring a take. Ledger argues it out with real data, puts it on the record, and comes back to tell everyone how it aged.
 
-This is the product design behind Ledger v2: why each feature exists and how they connect. The rules for each feature are in [SPEC.md](SPEC.md).
+CybeReator's members already throw takes around all day: "SOL flips ETH this cycle", "NVDA dip is a gift", "BTC ETFs bleed all week". Today those takes vanish into the scroll. Nobody checks them, nobody gets credit, and the arguments are vibes.
 
-## The problem it fixes
+Ledger turns a take into a short, sharp debate, built on numbers people can check. It doesn't forecast. It stress-tests: the case **for**, the case **against**, **what would prove it wrong**, and what **history** says about setups like this. If the member stands by it, Ledger logs it as a thesis with a check-back date. Others take a side. On the date, Ledger replies in the same thread with the verdict and who read it right.
 
-v1 had many features and no loop between them. There were 22 slash commands, 5 alert subcommands and 2 admin channels that were never set up (`guild_settings` had 0 rows, and no Daily Question had ever run). There were 18 chat tools, and every feature was a separate thing to discover. Calls also read like betting slips ("7.5% chance: +1,241 if right, −100 if wrong"), which the owner rejected.
+This replaces the old design (rated price calls, points, the leaderboard, the daily post), which members found generic.
 
-The DeepSeek grant ($500/month) depends on engagement, which here means members coming back and using more than one part of Ledger.
+## Why people engage
 
-## The idea
+| Hook | How it shows up |
+|---|---|
+| **Being challenged** is fun, especially in public | Every take gets a for/against breakdown with real numbers, plus a one-line verdict with some bite |
+| **Taking sides** is easy | One tap: *I'm with you* / *I'm against*. The card shows the split. |
+| **Being proven right** | Check-backs reply in the original thread, ping the author, and name everyone who read it right |
+| **Reputation** | Records: takes logged, how many aged well, best take, *contrarian wins* (aged well while most were against) |
+| **A reason to come back** | *How's it doing?* shows live progress; `/ledger` shows what changed since you last looked |
+| **Smart conversation** | Normal chat, but every market answer is backed by computed analysis, not just numbers read out |
 
-> **2026-10-23 update:** chat comes first. The owner asked for an interactive bot, not a forced daily post, so Today's Page is optional (off until an admin runs `/ledger-setup`) and Ledger no longer advertises it. Members get everything by asking: prices (crypto and US stocks), the tape, their page, calls, watches, catch-ups.
+No points, no odds, no stakes: a take ages well or badly, and the record says which.
 
-Ledger keeps **the server's book**. Every feature either **writes an entry** or **reads entries back**.
+## The reasoning layer
 
-- **Tape entries** are what the market printed: ETF flow days and the fund that led, macro prints (actual vs forecast), corporate BTC buys, and ±5% days. They come from SoSoValue and Binance.
-- **Member entries** are what members put on the record: daily answers, calls, and agree/disagree.
-- **The tape settles the member entries**: Binance candles every minute, SoSoValue flow days at T+1.
-- **Two pages** read the book back:
-  - **Today's Page** is shared and posts once a day at 13:30 UTC in the Ledger channel.
-  - **Your Page** is private, one tap away: `/ledger` or the [My page] button on any Ledger card.
+The language model never does maths and never sees raw feeds. Each stress test runs four steps:
 
-The **watchlist** decides which tape entries reach which member, by DM and on their page.
+1. **Understand**: the model turns the member's words into a testable claim, with the assets, the measure, the direction, any threshold and the horizon. A vague take ("SOL is the future") gets a testable version proposed ("SOL beats ETH over 90 days").
+2. **Gather**: code builds an *evidence pack* of numbered facts from real data:
+   - returns over 1, 7, 30 and 90 days and 1 year
+   - position against the 50- and 200-day averages
+   - volatility now against its year
+   - how unusual today's move is
+   - distance from the 52-week high and low
+   - for two assets: the ratio and its percentile, and their correlation
+   - the **base rate**: how often this kind of move has happened over this horizon in the available history
+   - **analogs**: what happened next after similar setups
+   - ETF flows and streaks, macro events inside the horizon, and the latest headlines
+3. **Argue**: the model (in thinking mode) writes the debate from that pack only, citing the fact behind each point.
+4. **Verify**: code checks every number in the argument against the pack. A point that cites nothing, or has a number the pack doesn't contain, is dropped and the argument rewritten once. What members see is never invented.
 
-```
-            ┌──────────── THE TAPE (SoSoValue, Binance) ────────────┐
-            │ flows · macro · BTC buys · ±5% days · 1m candles      │
-            └───────┬───────────────────────┬───────────────────────┘
-                    │ settles               │ filtered by
-                    ▼                       ▼
-   THE RECORD (answers, calls, leans)   THE WATCHLIST (your /watch rules)
-                    │                       │ DMs
-                    └──────────┬────────────┘
-                               ▼
-          TODAY'S PAGE (shared)   ·   YOUR PAGE (private)
-                               │ buttons
-                               └──► answer · watch · call · receipts · catch up
-```
+## Measuring a thesis
 
-## The daily loop
-
-1. **Trigger.** Today's Page posts at 13:30 UTC. It opens with yesterday's verdict ("Room said Inflow 11–4: missed. Room this month: 9 of 15"), then the tape, then the book (calls settled and due, top 3), then today's question. The only personal trigger is a DM about something the member chose to watch.
-2. **One tap.** The member answers the question, or presses [My page].
-3. **Something back.** The answer reply shows:
-   - how many have answered (the split stays hidden until answers close, so nobody can copy the majority);
-   - when the question settles;
-   - the member's streak;
-   - their open calls on that asset.
-
-   Its buttons are [My page] and [Watch BTC flows] (or [Watch SOL ±5% days]).
-4. **Invest.** A watch, a call or a lean each creates a future entry with the member's name on it.
-5. **The tape settles.** Calls settle within the minute and questions settle from data. Results land in three places:
-   - on Your Page;
-   - by DM, if the member watches that asset;
-   - in tomorrow's Today's Page, which is the next trigger.
-
-Your Page is built from stored data and cached numbers, with **no LLM call**. DeepSeek is used where it adds something: chat as the front door to every pillar, channel catch-ups (the picker on Your Page) and drafting calls from plain English.
-
-## Four pillars, each connected to the others
-
-| Pillar | What a member gets | Connects to |
+| Kind | Example | Judged on |
 |---|---|---|
-| **The Tape** | Yesterday's flows and the leading fund, BTC buys, the macro docket with actuals, FOMC odds and the market board, as numbers with a source and never why. `/tape` or ask in chat. | Settles the Record. Fills Today's Page and "tape since you looked" on Your Page. Its cards carry [Watch …] buttons. |
-| **The Record** | Proof of what you said and how it went. Daily answers earn +25 if right. A call scores its result minus its rating. Agree/disagree is recorded right or wrong and scores nothing. | Feeds the verdict and the book on Today's Page, and your receipts on Your Page. Settlement posts link to /ledger. |
-| **The Watchlist** | Set it once and you get a DM when something you follow happens: a price level, a ±% move, a ±X% day, each ETF flow day, a macro print, or a corporate BTC buy. | Decides which tape entries reach you. Every DM carries [My page] and [Stop this watch]. Everything you watch shows on Your Page. |
-| **The Pages** | One place to look instead of 22 commands. | Every card ends in 2–3 buttons, at least one of which leads to another pillar. |
+| Price | BTC above 100k by 31 Dec | price at the check-back vs the target |
+| Move | NVDA up 10% in a month | % change from the logging price |
+| Relative | SOL beats ETH over 30 days | change in the SOL/ETH ratio |
+| Flows | BTC ETFs net inflows this week | sum of daily net flows over the window |
 
-## Why the scoring changed
+Assets: any crypto with a USDT market (Binance, with OKX and Bybit as backups) and US stocks and ETFs (Yahoo, with Nasdaq as backup). Horizons run from 1 day to 1 year; the default is 30 days.
 
-The old scoring (`100 × (1−q)/q` up to 2,000, −100 if wrong) was fair but read like odds and payouts.
+## Where Ledger posts
 
-The new score is **result minus rating**. A call rated 20% scores +80 if it's right and −20 if it's wrong, so a call is worth at most ±100. The ratings come from the backtested fat-tailed volatility model (`npm run backtest`), so blind guessing averages zero in every 10% band, within ±2 points.
+- **Replies only**, to whoever asked. Nothing is scheduled to the channel.
+- **Check-back verdicts** reply to the thesis card itself and ping only its author. A stress test nobody logs within a day loses its buttons.
+- **Watch alerts** go by DM.
 
-- No score is shown before lock, only the rating and a word for it ("a stretch", "even-ish", "the likelier side").
-- Calls rated under 10% are refused as too far out to score fairly. Calls rated over 90% are refused too, because the board doesn't score weather reports.
-- Agree/disagree is a free **lean**. It goes on your receipts as right or wrong and moves no points, so there's no "taking the other side" of anyone.
-- Rep is call scores plus question points. Question points reward showing up (+25, never negative) and call scores reward skill. Receipts show them separately, so neither hides the other.
+## Data budget
 
-## What shipped (wave 1)
+Only a background fetcher talks to SoSoValue (20 requests a minute, 100k a month). It refreshes ETF flows, macro, the market board, headlines and a batch of stock quotes on schedules, about 1,200 requests a day. Results are stored in the database, so restarts don't refetch, and the fetcher slows down past 80% of the month and stops at 96%. Chat and cards never call SoSoValue. Price history comes from Binance and Yahoo, cached.
 
-- **One setup step.** `/ledger-setup channel:#x` switches on Today's Page and server prints in one channel. `archive:true` turns on the 30-day recall archive.
-- **Today's Page.** It replaces the Daily Ledger. Question results are edited into the question card, and the verdict leads the next page, so no fact is posted twice.
-- **Your Page.** `/ledger` or [My page]. It covers what changed since your last look (at most 7 days back):
-  - calls and leans that settled;
-  - open calls with live prices;
-  - rep and rank;
-  - the question and your streak;
-  - your watchlist and what fired;
-  - the tape since you looked.
+## Surfaces
 
-  It also has a "Catch me up on a channel…" picker.
-- **Scoring and leans** as described above. Migration 5 rescored every existing position.
-- **A smaller command surface.** Member commands: `/ledger`, `/call`, `/watch`, `/tape`, `/receipts`, `/board`, `/recall`. Admin commands: `/ledger-setup`, `/ledger-admin`. That is 9 in all, down from 22 + 5.
-- **Watchlist.** It adds ±X% day watches. DMs are batched once per check and come with buttons. Hits are never posted publicly. Server prints are merged into one post per check and capped at 2 a day, in priority order macro > flows > buys > moves.
-- **Habit metrics.** `/ledger-admin stats` shows:
-  - weekly and monthly actives;
-  - average daily actives;
-  - returning members (3 of the last 8 days);
-  - members using 2+ pillars;
-  - page opens, button taps and answers;
-  - calls, leans and watch adds;
-  - chat messages, and how many used tools.
+- **@Ledger \<a take\>**, or `/take`: a stress-test card with **Log it**.
+- **A logged thesis card**: *I'm with you*, *I'm against* and *How's it doing?*
+- **`/ledger`**: your page, with open theses and live progress, recent verdicts and the debates you joined.
+- **`/takes [member]`**: someone's record, or the server's open debates and best records.
+- **`/tape`**: ETF flows, macro, corporate BTC buys, headlines, the market board.
+- **Chat**: prices, analysis, explanations, catch-up and watch alerts, like a sharp friend.
 
-## Roadmap (only if wave-1 numbers climb for 2 weeks)
+## Guardrails and cost
 
-**Wave 2**
+- Model: `deepseek-flash`. Chat runs with thinking off (fast, cheap). The stress test's argue step runs with thinking on and JSON output; a stress test costs about half a cent.
+- Budget: a global daily cap (default $2.00/day) also guards against bugs like a reply loop. Per-user cooldown and hourly limits exist but are off for the closed group.
+- The model never computes or remembers numbers. Analysis is code (`src/analysis/`); the model gets numbered facts and must cite them, and `verify()` drops any point with a number not in its facts.
+- **Reply check** (`src/llm/replyCheck.ts`): every chat reply is checked against the tool results it was written from. Invented market figures, actions claimed but not done, and betting words (even in denials) trigger one redo.
+- A thesis is only settled on a real, finite measure. If the data never shows up, it's voided 5 days after its date.
+- Chat quality is tested with `npm run chat-eval` against `scripts/chat-scenarios.json`: takes, analysis, bait (odds, payouts, forecasts), injections, memory and everyday chat.
 
-- **Watchlist proper.** A list of up to 20 coins and ETF assets with default rules, [Mute 24h], and anonymous "most watched" counts (5+ watchers only).
-- **One price engine.** Watch levels and call targets settle on the same minute candles. Big prints gain server context ("today's question asks this").
-- **Tape journal.** Every print is stored once with its value, so pages and weekly posts cite exact numbers without new SoSoValue calls.
-- **Weekly Record** (Sunday 18:00 UTC) and **season close** (the 1st).
-- **Receipts v2.** Calibration bands ("calls rated under 30%: 3 of 7 right; the ratings expected 1.6") and one banked rest day per streak.
-- Context menus: "Receipts" on a member and "Log as call" on your own message.
+## Engagement metrics (for the DeepSeek grant)
 
-**Wave 3**
+`/ledger-admin stats` shows, per server: weekly and monthly active members (chat, command, button or page open), average daily actives, **returning** members (active 3+ of the last 8 days), members using **2+ parts** (takes, tape, watchlist, memory), takes stress-tested, logged, sides taken, page opens, button taps, watch adds, chat messages and how many used tools, LLM spend and SoSoValue usage. Weekly actives are always read next to returning members, so button taps alone can't inflate it.
 
-- **Self-stamps.** Put any take of your own on the record with the prices in it, unscored, and see how it aged at 1, 7 and 30 days.
-- **Stocks** on the watchlist and the tape. `stockQuotes` and `stockDailyCandles` already exist in `sosovalue.ts`. Stock calls come only if members ask.
-- **Grant report.** CSV export, D1/D7/D30 cohorts and a Monday DM to the owner.
+## Non-goals
 
-## What to watch
-
-- Weekly active members out of ~150. This is the headline, always reported with **returning members** and the **2+ pillars share** so button taps alone can't inflate it.
-- Your Page opens per day, question answers per day, and the longest streak.
-- Room vs Tape monthly record. It is a shared stat that people talk about.
-- DeepSeek cost per weekly active member (target under $0.02) and replies that used tools.
-- SoSoValue requests against the 100k monthly quota.
-
-## Known risks
-
-- **Cold start.** Nothing proactive runs until an admin runs `/ledger-setup` once.
-- **Gambling perception.** The structure is now a record, not just the words. If any rating-linked score still feels wrong, the one-line fallback is for calls to carry only W–L and calibration, with rep coming from the question alone.
-- **"I don't call the market" next to a rating.** The rating is always described as coming from recent volatility, never as Ledger's view.
-- **Small-room noise.** The room verdict needs 3+ answers and a strict majority. The tally always shows, and the record is monthly.
-- **Shaming.** Only the caller is pinged on settlement. Wrong leans appear only as counts.
-- **Privacy.**
-  - Only page opens are tracked per member.
-  - Catch-ups and recall cover only channels the member can read.
-  - The archive is opt-in with 30-day retention.
-  - Summaries send member text to DeepSeek.
-- **Binance blocks US IPs.** The VPS must be outside the US, or price checks and settlement stop.
-- **One SoSoValue key shared by dev and prod.** Both draw on the same 20/min limit. Use a second key, or keep the dev bot off while prod runs.
+Price forecasts and trade advice, real money of any kind, trade execution, portfolio tracking, scheduled channel posts.
