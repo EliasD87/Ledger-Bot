@@ -16,6 +16,7 @@ export const TOOL_PILLAR: Record<string, Pillar> = {
   list_debates: 'record',
   analyze: 'tape',
   show_chart: 'tape',
+  search_news: 'tape',
   get_price: 'tape',
   get_recap: 'tape',
   get_etf_flows: 'tape',

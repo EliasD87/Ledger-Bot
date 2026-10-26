@@ -77,3 +77,11 @@ describe('answerChecked', () => {
     expect(clean.seen).toHaveLength(1);
   });
 });
+
+describe('talking about the machinery', () => {
+  it('flags replies that mention tools', () => {
+    const ev = { request: 'how does fomc hit oil?', toolsUsed: ['get_macro'], sources: ['FOMC 3.75–4.00% 90.6%'] };
+    expect(replyProblems("The tool won't tell me which range is current.", ev).join(' ')).toMatch(/tools/);
+    expect(replyProblems('I can see the pricing but not the current rate.', ev).join(' ')).not.toMatch(/tools/);
+  });
+});

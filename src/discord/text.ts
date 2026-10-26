@@ -44,6 +44,8 @@ export function cardCaption(text: string): string {
 
 export function postableReply(text: string): string {
   const cleaned = stripMarkup(text)
+    // Notes the model sees about earlier messages, never meant to be posted.
+    .replace(/^[ \t]*\[(attachment|card attached)[^\]\n]*\][ \t]*$/gim, '')
     .replace(/^\s*\**ledger\**\s*:\s*/i, '')
     .replace(/@(everyone|here)/g, '@​$1')
     .replace(/\b(a )?long[- ]?shot(s)?( call(s)?)?\b/gi, (match, article, plural, _call, plural2) => {

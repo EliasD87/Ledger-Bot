@@ -92,6 +92,7 @@ src/
     recap.ts            "what moved yesterday"
     treasuries.ts       background scan for corporate BTC purchases
   charts/               chart drawings (SVG by hand) turned into PNGs with resvg; fonts in assets/fonts (IBM Plex Sans, OFL)
+  news/webNews.ts       world news (Google News, Yahoo Finance backup) for stocks, commodities, macro, geopolitics
   quotes.ts             live prices with backups
   calls/prices.ts       Binance market data
   sosovalue.ts          SoSoValue API client (rate-limited lanes)

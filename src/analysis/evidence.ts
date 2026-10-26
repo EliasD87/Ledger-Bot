@@ -1,3 +1,4 @@
+import { type WebNews, newsQuery } from '../news/webNews.js';
 import { leadingFund, type Desk, ETF_ASSETS } from '../desk/desk.js';
 import { formatPrice, formatUsd } from '../format.js';
 import { type ThesisSpec, measureLabel, neededChange } from '../theses/spec.js';
@@ -51,7 +52,7 @@ const month = (date: string) => new Date(`${date}T00:00:00Z`).toLocaleDateString
  */
 export class EvidenceBuilder {
   constructor(
-    private readonly deps: { history: MarketHistory; desk: Desk | null; now?: () => number },
+    private readonly deps: { history: MarketHistory; desk: Desk | null; news?: WebNews; now?: () => number },
   ) {}
 
   private get now(): number {
@@ -182,6 +183,7 @@ export class EvidenceBuilder {
       const m = h && changeOver(h.closes, 30);
       if (m !== null && m !== undefined) facts.add(`Backdrop: ${backdrop} ${pct(m)} over 30 days.`);
     }
+    await this.worldHeadlines(facts, main);
     if (!desk) return;
     for (const h of histories) {
       const sym = h.asset.symbol;
@@ -211,9 +213,23 @@ export class EvidenceBuilder {
     }
     const events = macro?.upcoming.filter((d) => d.date <= until).flatMap((d) => d.events.filter((e) => /CPI|PCE|payroll|GDP|unemployment|retail sales/i.test(e)).map((e) => `${e} (${d.date})`)) ?? [];
     if (events.length) facts.add(`Macro inside the window: ${events.slice(0, 4).join(', ')}.`, 'SoSoValue');
-    const news = await desk.news(main.symbol).catch(() => null);
-    const titles = news?.items.slice(0, 3).map((n) => n.title) ?? [];
-    if (titles.length) facts.add(`Headlines${news?.asset ? ` on ${news.asset}` : ''}: ${titles.map((t) => `"${t.slice(0, 90)}"`).join('; ')}.`, 'SoSoValue');
+    if (main.kind === 'crypto') {
+      const news = await desk.news(main.symbol).catch(() => null);
+      const titles = news?.items.slice(0, 3).map((n) => n.title) ?? [];
+      if (titles.length) facts.add(`Headlines${news?.asset ? ` on ${news.asset}` : ''}: ${titles.map((t) => `"${t.slice(0, 90)}"`).join('; ')}.`, 'SoSoValue');
+    }
+  }
+
+  /** What the world is saying about a stock or commodity (crypto headlines come from SoSoValue). */
+  private async worldHeadlines(facts: FactList, main: History['asset']): Promise<void> {
+    if (main.kind === 'crypto' || !this.deps.news) return;
+    const items = await this.deps.news.search(newsQuery(main.symbol), { days: 3, limit: 5 }).catch(() => []);
+    if (!items.length) return;
+    const day = (ms: number) => new Date(ms).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+    facts.add(
+      `Headlines on ${main.symbol}, last 3 days: ${items.map((h) => `"${h.title.slice(0, 110)}" (${h.source}, ${day(h.publishedAt)})`).join('; ')}.`,
+      'Google News',
+    );
   }
 }
 

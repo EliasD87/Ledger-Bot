@@ -196,7 +196,8 @@ function fullText(m: Message, fromSelf: boolean): string {
     ...m.embeds.map((e) => [e.title, e.description, ...e.fields.map((f) => `${f.name}: ${f.value}`)].filter(Boolean).join('\n')),
   ];
   for (const c of cardsSeen) parts.push(fromSelf ? `[card attached: ${oneLine(c).slice(0, 300)}]` : c);
-  for (const file of m.attachments.values()) parts.push(`[attachment: ${file.name}]`);
+  // Ledger's own charts are already described by its text; listing them only invites the model to copy the note.
+  if (!fromSelf) for (const file of m.attachments.values()) parts.push(`[attachment: ${file.name}]`);
   return parts.filter(Boolean).join('\n');
 }
 

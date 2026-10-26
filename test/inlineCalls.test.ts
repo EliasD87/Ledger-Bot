@@ -33,3 +33,11 @@ describe('tool calls written as text', () => {
     expect(stripMarkup('plain text')).toBe('plain text');
   });
 });
+
+describe('notes the model must not echo', () => {
+  it('drops attachment and card notes from a post', () => {
+    expect(postableReply('The bounce was orderly.\n[attachment: chart.png]')).toBe('The bounce was orderly.');
+    expect(postableReply('[card attached: ⚖️ Stress test · thesis #3]\nHere you go.')).toBe('Here you go.');
+    expect(postableReply('A [bracketed aside] stays.')).toBe('A [bracketed aside] stays.');
+  });
+});

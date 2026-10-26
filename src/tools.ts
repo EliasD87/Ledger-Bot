@@ -1,3 +1,4 @@
+import type { WebNews } from './news/webNews.js';
 import { type AlertDepsForCreate, type AlertRequest, createAlert, describeAlert } from './alerts/service.js';
 import type { AlertStore } from './alerts/store.js';
 import { isCommodity } from './analysis/commodities.js';
@@ -18,6 +19,29 @@ import { held, measureLabel } from './theses/spec.js';
 import type { Thesis, ThesisStore } from './theses/store.js';
 
 const HOUR = 60 * 60 * 1000;
+
+/** World news: anything beyond the crypto feed. */
+const NEWS_TOOLS: Tool[] = [
+  {
+    type: 'function',
+    function: {
+      name: 'search_news',
+      description:
+        'Searches recent world news (Google News: Reuters, WSJ, Bloomberg, CNBC…) for anything beyond crypto: stocks, oil and other commodities, ' +
+        'the Fed and macro, geopolitics ("iran oil", "strait of hormuz", "opec", "fed rate decision", "nvidia earnings"). Use it whenever someone asks why ' +
+        'something moved, what is going on with a stock or commodity, or about current events. Returns headlines with outlet and date.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'What to search, in plain words, e.g. "crude oil iran"' },
+          days: { type: 'number', description: 'How far back, 1 to 30 (default 3)' },
+        },
+        required: ['query'],
+        additionalProperties: false,
+      },
+    },
+  },
+];
 
 /** Charts on request. */
 const CHART_TOOLS: Tool[] = [
@@ -341,6 +365,8 @@ export interface ToolKitDeps {
   quotes?: MarketQuotes;
   /** Draws charts for analysis replies. */
   charts?: Charts;
+  /** World news beyond the crypto feed. */
+  news?: WebNews;
   now?: () => number;
 }
 
@@ -353,6 +379,7 @@ export class ToolKit {
     return [
       ...TAKE_TOOLS,
       ...(this.deps.charts ? CHART_TOOLS : []),
+      ...(this.deps.news ? NEWS_TOOLS : []),
       ...(quotes ? PRICE_TOOLS : []),
       ...(desk ? DESK_TOOLS : []),
       ...(alerts ? ALERT_TOOLS : []),
@@ -395,6 +422,16 @@ export class ToolKit {
           lean: a.lean,
           verdict: a.verdict,
           note: 'The card with the full analysis and a "Log it" button is attached under your reply. Your whole reply is ONE or two short sentences (under 35 words): react to the verdict in your voice, no numbers, no repeating the card, no other tools. Invite them to log it if they stand by it. If you mention timing, use checks_back_if_logged_now.',
+        };
+      },
+      search_news: async (args) => {
+        const query = typeof args.query === 'string' ? args.query.trim() : '';
+        if (!query) return { error: 'Search for what?' };
+        const items = await this.deps.news!.search(query, { days: typeof args.days === 'number' ? args.days : 3, limit: 8 }).catch(() => []);
+        if (!items.length) return { note: `No recent headlines found for "${query}".` };
+        return {
+          headlines: items.map((h) => ({ title: h.title, outlet: h.source, when: utcLabel(h.publishedAt), link: h.link })),
+          note: 'Say what the headlines report and who reported it; a headline is a report, not proof of why a price moved.',
         };
       },
       show_chart: async (args) => {
@@ -599,7 +636,7 @@ async function priceForModel(quotes: MarketQuotes, args: Record<string, unknown>
         price: `$${formatPrice(q.last)}`,
         change_today: q.changePct !== null ? signedPct(q.changePct / 100) : null,
         market_status: q.marketStatus.toLowerCase().replace(/_/g, ' '),
-        range_52w: q.low52w !== null && q.high52w !== null ? `$${formatPrice(q.low52w)}–$${formatPrice(q.high52w)}` : null,
+        range_52w: !isCommodity(s) && q.low52w !== null && q.high52w !== null ? `$${formatPrice(q.low52w)}–$${formatPrice(q.high52w)}` : null,
         market_cap: q.marketCap !== null ? formatUsd(q.marketCap) : null,
         as_of: utcLabel(Date.parse(q.asOf)),
         source: q.source ?? 'SoSoValue',
