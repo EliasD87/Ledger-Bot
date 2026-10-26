@@ -69,7 +69,7 @@ export interface WindowSeries {
  * Any window, on request ("the 7-day", "last 3 months"): the price, or the ratio of two assets. Long
  * windows also show the 50- and 200-day averages when there's history for them.
  */
-export function windowChart(series: WindowSeries, days: number, daily?: { closes: Close[] }): string {
+export function windowChart(series: WindowSeries, days: number, daily?: { closes: Close[] }, dots?: { t: number; label: string }[]): string {
   const last = series.points.at(-1)?.v ?? 0;
   const first = series.points[0]?.v ?? last;
   const format = axisFormat(last);
@@ -88,6 +88,7 @@ export function windowChart(series: WindowSeries, days: number, daily?: { closes
     lines,
     format,
     note: series.source,
+    ...(dots?.length ? { dots } : {}),
   });
 }
 

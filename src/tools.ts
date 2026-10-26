@@ -1,7 +1,8 @@
+import type { MarketContext } from './analysis/context.js';
 import type { WebNews } from './news/webNews.js';
 import { type AlertDepsForCreate, type AlertRequest, createAlert, describeAlert } from './alerts/service.js';
 import type { AlertStore } from './alerts/store.js';
-import { isCommodity } from './analysis/commodities.js';
+import { isCommodity, marketOf } from './analysis/commodities.js';
 import type { EvidenceBuilder } from './analysis/evidence.js';
 import type { ChartFile, Charts } from './charts/maker.js';
 import type { BinanceFeed, CryptoStats } from './calls/prices.js';
@@ -37,6 +38,29 @@ const NEWS_TOOLS: Tool[] = [
           days: { type: 'number', description: 'How far back, 1 to 30 (default 3)' },
         },
         required: ['query'],
+        additionalProperties: false,
+      },
+    },
+  },
+];
+
+/** Event mapping: what moved, when, what was reported, what else moved with it. */
+const CONTEXT_TOOLS: Tool[] = [
+  {
+    type: 'function',
+    function: {
+      name: 'map_events',
+      description:
+        "Maps an asset's biggest moves over a window to that day's headlines, shows how it behaves on FOMC days (from past decisions), " +
+        'and what the dollar, yields, VIX, S&P 500, gold, oil and bitcoin did and which of them it moves with. Attaches a chart with each event numbered. ' +
+        'Use it for "what happened to X", "why did X move like that", "what drove the run", "how does the Fed usually hit X", "what is X trading with".',
+      parameters: {
+        type: 'object',
+        properties: {
+          asset: { type: 'string', description: 'One ticker or name, e.g. "oil", "BTC", "NVDA"' },
+          days: { type: 'number', description: 'Window in days, 14 to 365 (default 90)' },
+        },
+        required: ['asset'],
         additionalProperties: false,
       },
     },
@@ -367,6 +391,8 @@ export interface ToolKitDeps {
   charts?: Charts;
   /** World news beyond the crypto feed. */
   news?: WebNews;
+  /** Event mapping and the macro backdrop. */
+  context?: MarketContext;
   now?: () => number;
 }
 
@@ -380,6 +406,7 @@ export class ToolKit {
       ...TAKE_TOOLS,
       ...(this.deps.charts ? CHART_TOOLS : []),
       ...(this.deps.news ? NEWS_TOOLS : []),
+      ...(this.deps.context ? CONTEXT_TOOLS : []),
       ...(quotes ? PRICE_TOOLS : []),
       ...(desk ? DESK_TOOLS : []),
       ...(alerts ? ALERT_TOOLS : []),
@@ -393,6 +420,13 @@ export class ToolKit {
     const now = this.deps.now ?? Date.now;
     let draft: Thesis | undefined;
     const charts: ChartFile[] = [];
+    // One chart per reply. The most specific one wins: an event map over a chart on request over an analysis chart.
+    let chartRank = 0;
+    const offerChart = (chart: ChartFile, rank: number) => {
+      if (rank < chartRank) return;
+      chartRank = rank;
+      charts.splice(0, charts.length, chart);
+    };
 
     const handlers: Record<string, (args: Record<string, unknown>) => Promise<unknown> | unknown> = {
       ...(quotes ? { get_price: (args) => priceForModel(quotes, args) } : {}),
@@ -424,6 +458,35 @@ export class ToolKit {
           note: 'The card with the full analysis and a "Log it" button is attached under your reply. Your whole reply is ONE or two short sentences (under 35 words): react to the verdict in your voice, no numbers, no repeating the card, no other tools. Invite them to log it if they stand by it. If you mention timing, use checks_back_if_logged_now.',
         };
       },
+      map_events: async (args) => {
+        const asset = typeof args.asset === 'string' ? args.asset.trim() : '';
+        if (!asset) return { error: 'Which asset?' };
+        const days = Math.min(365, Math.max(14, Math.round(typeof args.days === 'number' ? args.days : 90)));
+        const found = await this.deps.context!.forAsset(asset, days);
+        if ('error' in found) return { error: found.error };
+        const { main, drivers, map } = found;
+        const dots = map.moves.map((m, i) => ({ date: m.date, label: String(i + 1) }));
+        if (!draft && this.deps.charts) {
+          const drawn = await this.deps.charts.window([main.asset.symbol], days, dots).catch(() => null);
+          if (drawn && !('error' in drawn)) offerChart(drawn.chart, 3);
+        }
+        return {
+          asset: main.asset.symbol,
+          window_days: days,
+          events: map.moves.map((m, i) => ({
+            marker: i + 1,
+            date: m.date,
+            move: signedPct(m.move),
+            size: `${Math.abs(m.sigma).toFixed(1)}x a normal day`,
+            headlines_that_day: m.headlines.map((h) => `${h.title} (${h.source})`),
+          })),
+          fomc: map.fomc ? this.deps.context!.eventFacts({ ...map, moves: [] })[0] : 'Not enough history around FOMC decisions.',
+          backdrop: drivers,
+          note:
+            'The chart is attached with each event numbered. Walk through what moved and what was reported that day, say plainly when a move had no clear news, ' +
+            'and connect it to the backdrop. Headlines are reports, not proof of cause. Quote numbers exactly.',
+        };
+      },
       search_news: async (args) => {
         const query = typeof args.query === 'string' ? args.query.trim() : '';
         if (!query) return { error: 'Search for what?' };
@@ -440,7 +503,7 @@ export class ToolKit {
         if (draft) return { skipped: 'The stress-test card already has its chart.' };
         const result = await this.deps.charts!.window(assets, typeof args.days === 'number' ? args.days : 365);
         if ('error' in result) return { error: result.error };
-        charts.splice(0, charts.length, result.chart);
+        offerChart(result.chart, 2);
         return { attached: 'The chart is attached under your reply. Talk about what it shows in a line or two; quote these numbers exactly.', ...result.summary };
       },
       analyze: async (args) => {
@@ -448,10 +511,9 @@ export class ToolKit {
         if (!assets.length) return { error: 'Which asset?' };
         const e = await evidence.forAssets(assets);
         if ('error' in e) return { error: e.error };
-        // One chart per reply; a chart asked for with show_chart (its own window) stays.
         if (!draft && !charts.length) {
           const chart = await this.deps.charts?.forAssets(e.histories).catch(() => null);
-          if (chart) charts.push(chart);
+          if (chart) offerChart(chart, 1);
         }
         return { facts: e.facts.map((f) => f.text), sources: e.sources.join(', '), note: 'Reason from these facts; quote numbers exactly; no price predictions.' };
       },
@@ -632,7 +694,7 @@ async function priceForModel(quotes: MarketQuotes, args: Record<string, unknown>
       prices.push({
         ticker: s,
         ...(askedAs.has(s) ? { asked_as: askedAs.get(s) } : {}),
-        market: isCommodity(s) ? 'commodity (front-month futures, USD)' : 'US stock',
+        market: marketOf(s) ? (marketOf(s)!.kind === 'commodity' ? 'commodity (front-month futures, USD)' : marketOf(s)!.name) : 'US stock',
         price: `$${formatPrice(q.last)}`,
         change_today: q.changePct !== null ? signedPct(q.changePct / 100) : null,
         market_status: q.marketStatus.toLowerCase().replace(/_/g, ' '),

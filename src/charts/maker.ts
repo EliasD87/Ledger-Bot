@@ -45,7 +45,11 @@ export class Charts {
    * A chart of one asset, or two as a ratio, over any window (1 day to 5 years); hourly prices under 30
    * days. Returns the numbers it shows too, so the reply can talk about the chart without inventing any.
    */
-  async window(symbols: string[], days: number): Promise<{ chart: ChartFile; summary: Record<string, string> } | { error: string }> {
+  async window(
+    symbols: string[],
+    days: number,
+    dots?: { date: string; label: string }[],
+  ): Promise<{ chart: ChartFile; summary: Record<string, string> } | { error: string }> {
     const span = Math.min(1825, Math.max(1, Math.round(days)));
     const assets = [];
     for (const symbol of symbols.slice(0, 2)) {
@@ -84,7 +88,8 @@ export class Charts {
       };
     }
     if (series.points.length < 2) return { error: `Not enough history to chart ${label}.` };
-    const chart = await this.draw('window', () => windowChart(series, span, daily));
+    const marks = dots?.map((d) => ({ t: Date.parse(`${d.date}T00:00:00Z`), label: d.label }));
+    const chart = await this.draw('window', () => windowChart(series, span, daily, marks));
     if (!chart) return { error: "Couldn't draw that chart right now." };
     const values = series.points.map((p) => p.v);
     const first = values[0]!;

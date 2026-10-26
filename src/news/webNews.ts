@@ -54,15 +54,42 @@ export class WebNews {
     return items.slice(0, limit);
   }
 
+  /** Headlines published on one day (or the day after, for late moves), for matching news to a move. */
+  async onDay(query: string, isoDate: string, limit = 3): Promise<Headline[]> {
+    const day = Date.parse(`${isoDate}T00:00:00Z`);
+    const iso = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+    const key = `day:${query.toLowerCase().trim()}|${isoDate}`;
+    const cached = this.cache.get(key);
+    // Past days don't change: keep them for a day.
+    if (cached && this.now() - cached.at < 24 * 60 * MINUTE) return cached.items.slice(0, limit);
+    let items: Headline[] = [];
+    try {
+      items = (await this.google(`${query} after:${iso(day - 86_400_000)} before:${iso(day + 2 * 86_400_000)}`, 0)).filter(
+        (h) => h.publishedAt >= day - 6 * 3_600_000 && h.publishedAt < day + 2 * 86_400_000,
+      );
+    } catch (err) {
+      log.debug(`News for "${query}" on ${isoDate} failed`, err);
+      return [];
+    }
+    // Price-relevant first: headlines that mention the market moving.
+    const moving = /price|rall|surg|jump|soar|climb|gain|rise|fall|drop|slid|slump|plung|tumbl|sink|rebound|sell-?off|crash|spike|record/i;
+    items.sort((a, b) => Number(moving.test(b.title)) - Number(moving.test(a.title)) || a.publishedAt - b.publishedAt);
+    this.cache.set(key, { items, at: this.now() });
+    return items.slice(0, limit);
+  }
+
   private async google(query: string, days: number): Promise<Headline[]> {
-    const url = `https://news.google.com/rss/search?q=${encodeURIComponent(`${query} when:${days}d`)}&hl=en-US&gl=US&ceid=US:en`;
+    // days = 0: the query carries its own date range (after:/before:).
+    const q = days > 0 ? `${query} when:${days}d` : query;
+    const url = `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&hl=en-US&gl=US&ceid=US:en`;
     const res = await this.fetchImpl(url, { headers: UA, signal: AbortSignal.timeout(10_000) });
     if (!res.ok) throw new Error(`Google News returned HTTP ${res.status}`);
     const xml = await res.text();
     return [...xml.matchAll(/<item>([\s\S]*?)<\/item>/g)].flatMap((m) => {
       const item = m[1]!;
       const tag = (name: string) => unescape(item.match(new RegExp(`<${name}[^>]*>([\\s\\S]*?)</${name}>`))?.[1] ?? '');
-      const source = tag('source');
+      const raw = tag('source');
+      const source = /^https?:\/\//.test(raw) ? raw.replace(/^https?:\/\/(www\.)?/, '').replace(/\/.*$/, '') : raw;
       // Google appends " - Outlet" to every title.
       const title = tag('title').replace(new RegExp(`\\s+-\\s+${escapeRegExp(source)}$`), '').trim();
       const publishedAt = Date.parse(tag('pubDate'));
@@ -85,7 +112,7 @@ export class WebNews {
 }
 
 /** What to search for an asset: plain names for commodities and indexes, "<ticker> stock" for companies. */
-export function newsQuery(symbol: string): string {
+export function newsQuery(symbol: string, crypto = false): string {
   const named: Record<string, string> = {
     WTI: 'crude oil',
     BRENT: 'Brent crude oil',
@@ -95,8 +122,13 @@ export function newsQuery(symbol: string): string {
     COPPER: 'copper price',
     SPY: 'S&P 500',
     QQQ: 'Nasdaq 100',
+    SP500: 'S&P 500',
+    DXY: 'US dollar index',
+    US10Y: '10-year Treasury yield',
+    VIX: 'VIX volatility',
   };
-  return named[symbol] ?? `${symbol} stock`;
+  const coins: Record<string, string> = { BTC: 'bitcoin', ETH: 'ethereum', SOL: 'solana', XRP: 'XRP crypto', DOGE: 'dogecoin', GRAM: 'Toncoin GRAM' };
+  return named[symbol] ?? coins[symbol] ?? (crypto ? `${symbol} crypto` : `${symbol} stock`);
 }
 
 function unescape(s: string): string {

@@ -8,6 +8,7 @@
  * Point --db at a COPY of the live database (theses get drafted and alerts set in it); without it the
  * records start empty. Catch-up and recall read the scenario's `channelLog` instead of Discord.
  */
+import { MarketContext } from '../src/analysis/context.js';
 import { WebNews } from '../src/news/webNews.js';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { AlertStore } from '../src/alerts/store.js';
@@ -79,7 +80,8 @@ const crypto = new CryptoQuotes(feed);
 const stocks = new StockQuotes(null);
 const history = new MarketHistory({ resolve: (asset) => crypto.resolve(asset), binance: feed });
 const news = new WebNews();
-const evidence = new EvidenceBuilder({ history, desk, news });
+const context = new MarketContext({ history, news });
+const evidence = new EvidenceBuilder({ history, desk, news, context });
 const measure = new Measure({ history, crypto, stocks, desk });
 const charts = new Charts({ history, desk });
 
@@ -130,6 +132,7 @@ for (const s of scenarios) {
     quotes: { crypto, stocks, identify: (raw, kind) => history.identify(raw, kind) },
     charts,
     news,
+    context,
   });
   const thread: ThreadMessage[] = [];
   const turns = [];

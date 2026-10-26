@@ -60,6 +60,17 @@ Assets: any crypto with a USDT market (Binance, with OKX and Bybit as backups) a
 
 Only a background fetcher talks to SoSoValue (20 requests a minute, 100k a month). It refreshes ETF flows, macro, the market board, headlines and a batch of stock quotes on schedules, about 1,200 requests a day. Results are stored in the database, so restarts don't refetch, and the fetcher slows down past 80% of the month and stops at 96%. Chat and cards never call SoSoValue. Price history comes from Binance and Yahoo, cached.
 
+## Context and events
+
+Every analysis and stress test also carries the wider picture, computed from data:
+
+- **The backdrop:** what the dollar index, the 10-year yield, the VIX, the S&P 500, gold, oil and bitcoin did over 30 days, and which of them the asset actually moves with (correlation of daily moves over 90 days).
+- **Event mapping:** the asset's biggest recent days, each matched to the headlines published that day (Google News). Asked directly ("what happened to oil this summer?"), Ledger draws the chart with each event numbered.
+- **Fed days:** how the asset moved around every FOMC decision since late 2021, against a normal two-day move, and when the next one is.
+- **World news:** recent headlines for stocks, commodities, the Fed and geopolitics, cited with the outlet.
+
+Ledger reasons in a fixed order: what moved, what was reported then, what else moved with it, what's scheduled next, what would change the view; and it says which parts are data and which are its read.
+
 ## Charts
 
 Ledger draws its own charts (no AI involved, no extra API calls): the year behind a take with its 50/200-day averages and the line it has to cross, daily ETF flow bars, a progress chart for *How's it doing?* (logged level, where it stands, the runway to the check-back), the same at the check-back, and a price or ratio chart for analysis questions. Members can also just ask: "pull up the 7-day", "chart SOL vs ETH this month", "how has SPCX moved since it listed" (hourly prices for windows under a month). Names work as well as tickers (nvidia, spacex, ripple, ton → GRAM). Same quiet palette as the cards. If a chart can't be drawn, the card goes out without it.

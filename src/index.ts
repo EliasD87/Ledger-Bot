@@ -1,3 +1,4 @@
+import { MarketContext } from './analysis/context.js';
 import { WebNews } from './news/webNews.js';
 import { createHash } from 'node:crypto';
 import { type Client, Events, GatewayCloseCodes, type Guild } from 'discord.js';
@@ -59,7 +60,8 @@ const crypto = new CryptoQuotes(feed);
 const stocks = new StockQuotes(desk);
 const history = new MarketHistory({ resolve: (asset) => crypto.resolve(asset), binance: feed });
 const news = new WebNews();
-const evidence = new EvidenceBuilder({ history, desk, news });
+const context = new MarketContext({ history, news });
+const evidence = new EvidenceBuilder({ history, desk, news, context });
 const renderer = new ChartRenderer();
 const charts = new Charts({ history, desk, renderer });
 const theses = new ThesisStore(db);
@@ -84,6 +86,7 @@ const conversation = new Conversation({
     quotes: { crypto, stocks, identify: (raw, kind) => history.identify(raw, kind) },
     charts,
     news,
+    context,
   }),
   members,
   theses,

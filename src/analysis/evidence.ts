@@ -1,3 +1,4 @@
+import type { MarketContext } from './context.js';
 import { type WebNews, newsQuery } from '../news/webNews.js';
 import { leadingFund, type Desk, ETF_ASSETS } from '../desk/desk.js';
 import { formatPrice, formatUsd } from '../format.js';
@@ -52,7 +53,7 @@ const month = (date: string) => new Date(`${date}T00:00:00Z`).toLocaleDateString
  */
 export class EvidenceBuilder {
   constructor(
-    private readonly deps: { history: MarketHistory; desk: Desk | null; news?: WebNews; now?: () => number },
+    private readonly deps: { history: MarketHistory; desk: Desk | null; news?: WebNews; context?: MarketContext; now?: () => number },
   ) {}
 
   private get now(): number {
@@ -183,6 +184,7 @@ export class EvidenceBuilder {
       const m = h && changeOver(h.closes, 30);
       if (m !== null && m !== undefined) facts.add(`Backdrop: ${backdrop} ${pct(m)} over 30 days.`);
     }
+    await this.marketContext(facts, histories[0]!, horizonDays);
     await this.worldHeadlines(facts, main);
     if (!desk) return;
     for (const h of histories) {
@@ -218,6 +220,22 @@ export class EvidenceBuilder {
       const titles = news?.items.slice(0, 3).map((n) => n.title) ?? [];
       if (titles.length) facts.add(`Headlines${news?.asset ? ` on ${news.asset}` : ''}: ${titles.map((t) => `"${t.slice(0, 90)}"`).join('; ')}.`, 'SoSoValue');
     }
+  }
+
+  /**
+   * The wider picture: what the dollar, yields, the VIX, stocks, gold, oil and bitcoin did and which of
+   * them this asset moves with; its biggest recent days and what was reported on them; and how it has
+   * behaved on Fed days, when a decision falls inside the window.
+   */
+  private async marketContext(facts: FactList, main: History, horizonDays: number): Promise<void> {
+    const ctx = this.deps.context;
+    if (!ctx) return;
+    const [drivers, map] = await Promise.all([ctx.drivers(main).catch(() => []), ctx.eventMap(main, 90, 3).catch(() => null)]);
+    for (const f of drivers) facts.add(f, 'Yahoo Finance');
+    if (!map) return;
+    const until = new Date(this.now + horizonDays * 86_400_000).toISOString().slice(0, 10);
+    const fedInWindow = map.nextFomc !== null && map.nextFomc <= until;
+    for (const f of ctx.eventFacts(map, fedInWindow)) facts.add(f, f.includes('headlines: "') ? 'Google News' : undefined);
   }
 
   /** What the world is saying about a stock or commodity (crypto headlines come from SoSoValue). */

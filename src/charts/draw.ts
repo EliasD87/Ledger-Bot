@@ -61,6 +61,8 @@ export interface LineChart {
   note?: string;
   /** Extend the time axis to here (e.g. a check-back date still ahead). */
   xEnd?: number;
+  /** Numbered markers on the main line: the days an event map talks about. */
+  dots?: { t: number; label: string }[];
 }
 
 /** A line chart: the measured series, its averages, a target and markers, with a label on the latest value. */
@@ -107,6 +109,19 @@ export function lineChart(c: LineChart): string {
     );
   }
   parts.push(...labels);
+  // Event markers sit on the main line at their day, numbered to match the reply.
+  for (const d of c.dots ?? []) {
+    const line = c.lines[0]!.points;
+    const p = line.reduce((best, q) => (Math.abs(q.t - d.t) < Math.abs(best.t - d.t) ? q : best), line[0]!);
+    const cx = x(p.t);
+    const cy = y(p.v);
+    const above = cy - 18 > PAD.top;
+    const ly = above ? cy - 16 : cy + 16;
+    parts.push(`<line x1="${f(cx)}" x2="${f(cx)}" y1="${f(cy)}" y2="${f(ly)}" stroke="${INK.target}" stroke-width="1"/>`);
+    parts.push(`<circle cx="${f(cx)}" cy="${f(cy)}" r="3" fill="${INK.target}"/>`);
+    parts.push(`<circle cx="${f(cx)}" cy="${f(ly)}" r="9" fill="${INK.panel}" stroke="${INK.target}" stroke-width="1.5"/>`);
+    parts.push(text(cx, ly + 4, d.label, { size: 11, color: INK.target, weight: 600, anchor: 'middle' }));
+  }
   const main = c.lines[0]!;
   const last = main.points.at(-1)!;
   parts.push(`<circle cx="${f(x(last.t))}" cy="${f(y(last.v))}" r="4" fill="${main.color}" stroke="${INK.panel}" stroke-width="2"/>`);

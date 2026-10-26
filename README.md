@@ -92,6 +92,8 @@ src/
     recap.ts            "what moved yesterday"
     treasuries.ts       background scan for corporate BTC purchases
   charts/               chart drawings (SVG by hand) turned into PNGs with resvg; fonts in assets/fonts (IBM Plex Sans, OFL)
+  analysis/context.ts   the backdrop (dollar, yields, VIX, S&P 500, gold, oil, BTC) and event maps
+  analysis/events.ts    FOMC calendar, reactions around events, biggest moves
   news/webNews.ts       world news (Google News, Yahoo Finance backup) for stocks, commodities, macro, geopolitics
   quotes.ts             live prices with backups
   calls/prices.ts       Binance market data
