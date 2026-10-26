@@ -81,6 +81,7 @@ Kinds:
 - flows: US spot ETFs for an asset see net inflows (up) or outflows (down) over the horizon. Only for: ${ETF_ASSETS.join(', ')}. {"kind":"flows","asset":"BTC","direction":"up","horizonDays":7}
 
 Assets are tickers: crypto (BTC, ETH, SOL, PEPE...) or US stocks and ETFs (NVDA, MSTR, COIN, SPY...). "bitcoin" is BTC, "microstrategy"/"strategy" is MSTR, "the nasdaq" is QQQ. If you aren't sure of a ticker (new listings, smaller names), write the name as the member did ("spacex"); it gets looked up.
+Commodities use these symbols: WTI (oil, crude, CL), BRENT, GOLD, SILVER, NATGAS, COPPER.
 Horizon in days from now (1 to 365): use the day counts given with the take, never count yourself. "this week" = days to this Sunday, or to next Sunday when that is under 3. "next week" = days to next Sunday. "this month" = days to month end (at least 7). "next month" = days to the end of next month. "this cycle", "long term" = 180. No timeframe = 30. Put any guess in assumptions.
 Vague takes ("SOL is the future", "ETH is dead", "MSTR is a scam") still get the closest checkable version: usually relative against the natural benchmark (alts vs ETH or BTC, crypto stocks vs BTC, stocks vs QQQ) or a move. Say what you chose in assumptions.
 Conditional takes ("if X happens, Y"): test Y only, and add the assumption "judged on Y alone, the 'if' isn't checked" in your own short words.
@@ -151,7 +152,7 @@ Use ONLY the numbered facts. Each point cites the fact ids it rests on in its fa
 - history: one sentence on what the base rate and analogs say, if those facts exist; otherwise on the trend.
 - lean: "for", "against" or "even": which side the evidence favours, honestly.
 - verdict: one punchy line, max 14 words, dry wit, no emojis, no forecast.
-Never use the words odds, bet, stake, payout, wager, gamble.
+Never use the words odds, bet, stake, payout, wager, gamble. Refer to the member by name or "they", never he/she/his/her.
 Reply with one json object:
 {"for":[{"point":"...","facts":["F1"]}],"against":[{"point":"...","facts":["F2"]}],"kill":"...","history":"...","lean":"against","verdict":"..."}`;
 
@@ -217,6 +218,10 @@ export function verify(raw: unknown, evidence: Evidence, claim: string): { argum
         problems.push(`${side} point ${i + 1} uses a betting word.`);
         return [];
       }
+      if (PRONOUN.test(point)) {
+        problems.push(`${side} point ${i + 1} guesses the member's gender; use their name or "they".`);
+        return [];
+      }
       if (FACT_ID.test(point)) {
         problems.push(`${side} point ${i + 1} mentions a fact id in its text; members can't see ids, say what the fact says.`);
         return [];
@@ -240,6 +245,10 @@ export function verify(raw: unknown, evidence: Evidence, claim: string): { argum
       problems.push(`${key} uses a betting word.`);
       return '';
     }
+    if (PRONOUN.test(value)) {
+      problems.push(`${key} guesses the member's gender; use their name or "they".`);
+      return '';
+    }
     if (FACT_ID.test(value)) {
       problems.push(`${key} mentions a fact id; say what the fact says instead.`);
       return '';
@@ -254,6 +263,8 @@ export function verify(raw: unknown, evidence: Evidence, claim: string): { argum
   return { argument: { for: pros, against: cons, kill, history, lean, verdict }, problems };
 }
 
+/** He/she about the member: never guessed. */
+const PRONOUN = /\b(he|she|him|his|her|hers)\b/i;
 const FACT_ID = /\bF\d{1,2}\b/;
 
 /** Drops cited ids in brackets ("(F2, F6)") and swaps em dashes for commas: house style on every card. */

@@ -9,6 +9,7 @@ import {
   analogs,
   baseRate,
   change,
+  changeOver,
   correlation,
   latestMove,
   maxDrawdown,
@@ -131,7 +132,7 @@ export class EvidenceBuilder {
     const last = c.at(-1)!.close;
     const stock = h.asset.kind === 'stock';
     const changes = ([['1d', 1], ['7d', 7], ['30d', 30], ['90d', 90], ['1y', 365]] as const)
-      .map(([label, n]) => [label, change(c, label === '1d' ? 1 : bars(n, stock))] as const)
+      .map(([label, n]) => [label, label === '1d' ? change(c, 1) : changeOver(c, n)] as const)
       .filter(([, v]) => v !== null)
       .map(([label, v]) => `${label} ${pct(v!)}`);
     facts.add(`${s} is at ${formatPrice(last)}: ${changes.join(', ')}.`);
@@ -160,7 +161,7 @@ export class EvidenceBuilder {
     if (r.length < 30) return;
     const label = `${a.asset.symbol}/${b.asset.symbol}`;
     const stock = a.asset.kind === 'stock' || b.asset.kind === 'stock';
-    const parts = ([['7d', 7], ['30d', 30], ['90d', 90]] as const).map(([l, n]) => [l, change(r, bars(n, stock))] as const).filter(([, v]) => v !== null);
+    const parts = ([['7d', 7], ['30d', 30], ['90d', 90]] as const).map(([l, n]) => [l, changeOver(r, n)] as const).filter(([, v]) => v !== null);
     facts.add(
       `${label} ratio is ${r.at(-1)!.close.toPrecision(4)} (rising means ${a.asset.symbol} outperforms ${b.asset.symbol}): ${parts.map(([l, v]) => `${l} ${pct(v!)}`).join(', ')}.`,
     );
@@ -178,7 +179,7 @@ export class EvidenceBuilder {
     if (backdrop && !histories.some((h) => h.asset.symbol === backdrop)) {
       const asset = await this.deps.history.identify(backdrop, main.kind);
       const h = asset && (await this.deps.history.daily(asset).catch(() => null));
-      const m = h && change(h.closes, bars(30, main.kind === 'stock'));
+      const m = h && changeOver(h.closes, 30);
       if (m !== null && m !== undefined) facts.add(`Backdrop: ${backdrop} ${pct(m)} over 30 days.`);
     }
     if (!desk) return;

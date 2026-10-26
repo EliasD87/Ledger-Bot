@@ -112,6 +112,14 @@ describe('the reasoning checks', () => {
     expect(out.problems.join(' ')).toMatch(/fact id/);
   });
 
+  it("never guesses the member's gender", () => {
+    const out = verify({ ...argument, verdict: 'The base rate is not on his side.' }, evidence, 'x');
+    expect(out.argument?.verdict).toBe('');
+    expect(out.problems.join(' ')).toMatch(/gender/);
+    // "the" and "there" aren't pronouns.
+    expect(verify({ ...argument, verdict: 'There is the base rate.' }, evidence, 'x').argument?.verdict).toBe('There is the base rate.');
+  });
+
   it('needs at least one point on each side', () => {
     expect(verify({ ...argument, against: [] }, evidence, 'x').argument).toBeNull();
   });

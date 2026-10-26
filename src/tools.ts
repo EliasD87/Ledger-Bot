@@ -1,5 +1,6 @@
 import { type AlertDepsForCreate, type AlertRequest, createAlert, describeAlert } from './alerts/service.js';
 import type { AlertStore } from './alerts/store.js';
+import { isCommodity } from './analysis/commodities.js';
 import type { EvidenceBuilder } from './analysis/evidence.js';
 import type { ChartFile, Charts } from './charts/maker.js';
 import type { BinanceFeed, CryptoStats } from './calls/prices.js';
@@ -27,7 +28,7 @@ const CHART_TOOLS: Tool[] = [
       description:
         'Attaches a price chart (one asset) or a ratio chart (two assets) over a window, and returns the numbers it shows (start, now, change, high, low). ' +
         'Use it whenever someone asks to see, pull up or show a chart, the "7-day", "last month", "since it listed", or "how has X moved", and for "how\'s X looking" alongside your read. ' +
-        'Works for crypto and US stocks; names are fine ("nvidia", "spacex").',
+        'Works for crypto, US stocks and ETFs, and commodities (oil/WTI, Brent, gold, silver, natural gas, copper); names are fine ("nvidia", "spacex", "crude").',
       parameters: {
         type: 'object',
         properties: {
@@ -594,7 +595,7 @@ async function priceForModel(quotes: MarketQuotes, args: Record<string, unknown>
       prices.push({
         ticker: s,
         ...(askedAs.has(s) ? { asked_as: askedAs.get(s) } : {}),
-        market: 'US stock',
+        market: isCommodity(s) ? 'commodity (front-month futures, USD)' : 'US stock',
         price: `$${formatPrice(q.last)}`,
         change_today: q.changePct !== null ? signedPct(q.changePct / 100) : null,
         market_status: q.marketStatus.toLowerCase().replace(/_/g, ' '),

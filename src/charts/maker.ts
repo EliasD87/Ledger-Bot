@@ -73,7 +73,9 @@ export class Charts {
       const histories = await Promise.all(assets.map((a) => this.deps.history.daily(a).catch(() => null)));
       if (!histories.every(Boolean)) return { error: `No price history for ${label}.` };
       const closes = histories.length === 2 ? ratio(histories[0]!.closes, histories[1]!.closes) : histories[0]!.closes;
-      const shown = closes.slice(-span);
+      // Calendar days, not bars: stocks and futures skip weekends, so 90 bars would be about 4 months.
+      const cutoff = Date.parse(`${closes.at(-1)?.date ?? '1970-01-01'}T00:00:00Z`) - span * 86_400_000;
+      const shown = closes.filter((c) => Date.parse(`${c.date}T00:00:00Z`) >= cutoff);
       daily = { closes };
       series = {
         label,

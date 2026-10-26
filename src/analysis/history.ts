@@ -1,5 +1,6 @@
 import { type BinanceFeed, normalizeAsset } from '../calls/prices.js';
 import { log } from '../log.js';
+import { commodity, yahooSymbol } from './commodities.js';
 import type { Close } from './stats.js';
 
 const MINUTE = 60_000;
@@ -52,6 +53,9 @@ export class MarketHistory {
    */
   async identify(raw: string, hint?: AssetKind): Promise<Asset | null> {
     const typed = raw.trim().replace(/^\$/, '');
+    // Oil, gold and friends first: "CL" means crude here, not Colgate.
+    const c = hint !== 'crypto' ? commodity(typed) : null;
+    if (c) return { symbol: c.symbol, kind: 'stock' };
     const symbol = normalizeAsset(typed);
     if (symbol && hint !== 'stock') {
       const pair = await this.deps.resolve(symbol).catch(() => null);
@@ -138,7 +142,7 @@ export class MarketHistory {
             async () => {
               const range = days <= 5 ? '5d' : days <= 30 ? '1mo' : '3mo';
               const interval = days <= 2 ? '5m' : '60m';
-              const body = (await this.getJson(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(asset.symbol)}?range=${range}&interval=${interval}`)) as {
+              const body = (await this.getJson(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol(asset.symbol))}?range=${range}&interval=${interval}`)) as {
                 chart?: { result?: { timestamp?: number[]; indicators?: { quote?: { close?: (number | null)[] }[] } }[] };
               };
               const r = body.chart?.result?.[0];
@@ -180,7 +184,7 @@ export class MarketHistory {
   }
 
   private async yahoo(asset: Asset): Promise<History> {
-    const body = (await this.getJson(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(asset.symbol)}?range=5y&interval=1d`)) as {
+    const body = (await this.getJson(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol(asset.symbol))}?range=5y&interval=1d`)) as {
       chart?: { result?: { timestamp?: number[]; indicators?: { quote?: { close?: (number | null)[] }[] } }[] };
     };
     const r = body.chart?.result?.[0];

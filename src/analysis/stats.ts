@@ -16,6 +16,22 @@ export function change(closes: Close[], days: number): number | null {
   return last && then && then.close > 0 ? last.close / then.close - 1 : null;
 }
 
+/**
+ * Change over `days` calendar days: from the last close on or before that date. Matches the charts for
+ * assets that skip weekends (stocks, futures), where a bar count would land on a different day.
+ */
+export function changeOver(closes: Close[], days: number): number | null {
+  const last = closes.at(-1);
+  if (!last) return null;
+  const cutoff = Date.parse(`${last.date}T00:00:00Z`) - days * 86_400_000;
+  let then: Close | undefined;
+  for (const c of closes) {
+    if (Date.parse(`${c.date}T00:00:00Z`) > cutoff) break;
+    then = c;
+  }
+  return then && then.close > 0 ? last.close / then.close - 1 : null;
+}
+
 export function average(values: number[]): number {
   return values.reduce((sum, v) => sum + v, 0) / values.length;
 }

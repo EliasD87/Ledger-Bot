@@ -17,6 +17,12 @@ function axisFormat(sample: number): (v: number) => string {
   return (v) => v.toPrecision(3);
 }
 
+/** The closes within `days` calendar days of the latest (stocks and futures skip weekends, so not a bar count). */
+function lastDays(closes: Close[], days: number): Close[] {
+  const cutoff = Date.parse(`${closes.at(-1)?.date ?? '1970-01-01'}T00:00:00Z`) - days * DAY;
+  return closes.filter((c) => Date.parse(`${c.date}T00:00:00Z`) >= cutoff);
+}
+
 /** A rolling average as a line, from the first day it has a full window. */
 function rolling(closes: Close[], n: number): Point[] {
   const out: Point[] = [];
@@ -38,7 +44,7 @@ export function measuredSeries(spec: ThesisSpec, histories: History[]): Close[] 
 /** The year behind a take, with its averages and the line it has to cross. */
 export function thesisChart(spec: ThesisSpec, histories: History[]): string {
   const all = measuredSeries(spec, histories);
-  const closes = all.slice(-365);
+  const closes = lastDays(all, 365);
   const now = closes.at(-1)?.close ?? 0;
   const format = axisFormat(now);
   const sources = [...new Set(histories.map((h) => h.source))].join(', ');
@@ -99,7 +105,7 @@ export function assetsChart(histories: History[]): string {
   if (histories.length >= 2) {
     const [a, b] = histories as [History, History];
     const all = ratio(a.closes, b.closes);
-    const closes = all.slice(-365);
+    const closes = lastDays(all, 365);
     const format = axisFormat(closes.at(-1)?.close ?? 0);
     return lineChart({
       title: `${a.asset.symbol} vs ${b.asset.symbol}`,
@@ -110,7 +116,7 @@ export function assetsChart(histories: History[]): string {
     });
   }
   const h = histories[0]!;
-  const closes = h.closes.slice(-365);
+  const closes = lastDays(h.closes, 365);
   const format = axisFormat(closes.at(-1)?.close ?? 0);
   return lineChart({
     title: h.asset.symbol,

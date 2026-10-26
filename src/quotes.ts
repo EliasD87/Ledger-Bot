@@ -1,3 +1,4 @@
+import { yahooSymbol } from './analysis/commodities.js';
 import { type BinanceFeed, type CryptoStats, normalizeAsset } from './calls/prices.js';
 import { type StoredDesk, usMarketOpen } from './desk/tape.js';
 import { log } from './log.js';
@@ -103,7 +104,7 @@ export class StockQuotes {
   }
 
   private async yahoo(ticker: string, open: boolean): Promise<SourcedQuote | null> {
-    const body = (await getJson(this.fetchImpl, `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?range=1d&interval=1d`)) as {
+    const body = (await getJson(this.fetchImpl, `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol(ticker))}?range=1d&interval=1d`)) as {
       chart?: { result?: { meta?: Record<string, unknown> }[] };
     };
     const m = body.chart?.result?.[0]?.meta;

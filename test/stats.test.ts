@@ -56,3 +56,17 @@ describe('analytics', () => {
     expect(a.setup.lookback).toBe(30);
   });
 });
+
+describe('changeOver', () => {
+  it('counts calendar days, so weekday-only assets line up with the charts', async () => {
+    const { changeOver } = await import('../src/analysis/stats.js');
+    // Weekdays only: Fri 2 Oct ... Mon 26 Oct.
+    const days = ['2026-10-02', '2026-10-05', '2026-10-06', '2026-10-07', '2026-10-08', '2026-10-09', '2026-10-12', '2026-10-19', '2026-10-26'];
+    const closes = days.map((date, i) => ({ date, close: 100 + i * 10 }));
+    // 7 calendar days before Mon 26 Oct is Mon 19 Oct (170 → 180).
+    expect(changeOver(closes, 7)).toBeCloseTo(180 / 170 - 1);
+    // 21 days back lands on Mon 5 Oct (110).
+    expect(changeOver(closes, 21)).toBeCloseTo(180 / 110 - 1);
+    expect(changeOver(closes, 400)).toBeNull();
+  });
+});
