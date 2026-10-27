@@ -1,3 +1,4 @@
+import { type Lang, langOf } from '../lang.js';
 import type { Evidence, EvidenceBuilder } from '../analysis/evidence.js';
 import { ETF_ASSETS } from '../desk/desk.js';
 import type { ChatMessage, ChatModel, Usage } from '../llm/deepseek.js';
@@ -29,6 +30,8 @@ export interface StressTest {
   assumptions: string[];
   evidence: Evidence;
   argument: Argument;
+  /** The member's language: the claim and argument are written in it. */
+  lang: Lang;
 }
 
 export type StressResult = { ok: true; test: StressTest } | { ok: false; reason: 'not-a-take' | 'needs-detail' | 'no-data' | 'failed'; message: string };
@@ -45,15 +48,15 @@ interface Deps {
  * code, argue it out in thinking mode from that evidence only, and verify every number against the
  * evidence (one corrected retry, then anything unsupported is dropped).
  */
-export async function stressTest(deps: Deps, take: string, author: string): Promise<StressResult> {
+export async function stressTest(deps: Deps, take: string, author: string, lang?: Lang): Promise<StressResult> {
   const now = (deps.now ?? Date.now)();
   const parsed = await understand(deps, take, now);
   if (!parsed.ok) return parsed;
-  return stressTestSpec(deps, take, author, parsed.spec, parsed.assumptions);
+  return stressTestSpec(deps, take, author, parsed.spec, parsed.assumptions, lang ?? langOf(take));
 }
 
 /** Steps 2 to 4 for a claim that's already known: gather, argue, verify. */
-export async function stressTestSpec(deps: Deps, take: string, author: string, given: ThesisSpec, assumptions: string[]): Promise<StressResult> {
+export async function stressTestSpec(deps: Deps, take: string, author: string, given: ThesisSpec, assumptions: string[], lang: Lang = 'en'): Promise<StressResult> {
   const problem = specProblem(given);
   if (problem) return { ok: false, reason: 'needs-detail', message: problem };
   const parsed = { spec: given };
@@ -70,10 +73,10 @@ export async function stressTestSpec(deps: Deps, take: string, author: string, g
           ...(parsed.spec.kind === 'relative' && second ? { versus: second.asset.symbol, versusKind: second.asset.kind } : {}),
         };
 
-  const claim = claimText(spec);
-  const argument = await argue(deps, { take, author, claim, assumptions, evidence });
-  if (!argument) return { ok: false, reason: 'failed', message: "Couldn't build a clean argument from the data this time." };
-  return { ok: true, test: { spec, claim, assumptions, evidence, argument } };
+  const claim = claimText(spec, lang);
+  const argument = await argue(deps, { take, author, claim, assumptions, evidence, lang });
+  if (!argument) return { ok: false, reason: 'failed', message: lang === 'zh' ? '这次没能从数据里整理出清楚的论证。' : "Couldn't build a clean argument from the data this time." };
+  return { ok: true, test: { spec, claim, assumptions, evidence, argument, lang } };
 }
 
 // --- 1. Understand ---
@@ -93,6 +96,7 @@ Vague takes ("SOL is the future", "ETH is dead", "MSTR is a scam") still get the
 Conditional takes ("if X happens, Y"): test Y only, and add the assumption "judged on Y alone, the 'if' isn't checked" in your own short words.
 Assumptions: at most 2, each a short phrase under 10 words, plain English ("'this month' = 8 days", "'flips' = outperforms, not market cap").
 
+Write assumptions in the same language as the take (a Chinese take gets Chinese assumptions).
 Reply:
 {"type":"thesis","spec":{...},"assumptions":["..."]}
 or {"type":"needs_detail","question":"one short question"} when the asset is unclear
@@ -153,23 +157,30 @@ export function dayCounts(now: number): string {
 const ARGUE = `You are Ledger, the sharpest skeptic in a crypto and stocks Discord. A member put a take on the table. Stress-test it fairly, like a smart friend who respects them enough to argue.
 
 Use ONLY the numbered facts. Each point cites the fact ids it rests on in its facts list; never mention fact ids (F1, F2) in the text itself, members never see them. Never write a number that isn't in a cited fact (copy figures exactly). No em dashes. Don't predict prices or say what will happen; weigh the evidence.
-- for: 2 or 3 strongest points supporting the take. against: 2 or 3 strongest points against. Each point one sentence, max 28 words, concrete, no filler.
+- Write in plain, everyday English that a casual crypto fan gets on first read: short sentences, common words, no finance jargon ("risk premium", "positioning", "constructive", "two-sided", "regime", "the tape"). Explain any market term you must use in a few words.
+- for: 2 or 3 strongest points supporting the take. against: 2 or 3 strongest points against. Each point one short sentence, max 24 words, concrete, no filler.
 - Use the context facts when they bear on the take: what the asset moves with (if it tracks the dollar, the dollar's direction is part of the case), how it behaved on past FOMC days if one falls in the window, and what was reported on its biggest recent days.
 - kill: the one thing that would show the take is wrong early (measurable where the facts allow), one sentence.
 - history: one sentence on what the base rate and analogs say, if those facts exist; otherwise on the trend.
 - lean: "for", "against" or "even": which side the evidence favours, honestly.
-- verdict: one punchy line, max 14 words, dry wit, no emojis, no forecast.
+- verdict: one punchy line, max 14 words, simple words, a bit of dry wit, no emojis, no forecast.
 Never use the words odds, bet, stake, payout, wager, gamble. Refer to the member by name or "they", never he/she/his/her.
 Reply with one json object:
 {"for":[{"point":"...","facts":["F1"]}],"against":[{"point":"...","facts":["F2"]}],"kill":"...","history":"...","lean":"against","verdict":"..."}`;
 
 async function argue(
   deps: Deps,
-  input: { take: string; author: string; claim: string; assumptions: string[]; evidence: Evidence },
+  input: { take: string; author: string; claim: string; assumptions: string[]; evidence: Evidence; lang: Lang },
 ): Promise<Argument | null> {
   const { evidence } = input;
   const messages: ChatMessage[] = [
-    { role: 'system', content: ARGUE },
+    {
+      role: 'system',
+      content:
+        input.lang === 'zh'
+          ? `${ARGUE}\nThe member wrote in Chinese: write every text field (points, kill, history, verdict) in natural, simple Simplified Chinese, the way people chat. Keep tickers and numbers exactly as they appear in the facts.`
+          : ARGUE,
+    },
     {
       role: 'user',
       content: [
@@ -221,7 +232,7 @@ export function verify(raw: unknown, evidence: Evidence, claim: string): { argum
         problems.push(`${side} point ${i + 1} has numbers not in its cited facts: ${loose.join(', ')}.`);
         return [];
       }
-      if (BETTING.test(point)) {
+      if (BETTING.test(point) || ZH_BETTING.test(point)) {
         problems.push(`${side} point ${i + 1} uses a betting word.`);
         return [];
       }
@@ -248,7 +259,7 @@ export function verify(raw: unknown, evidence: Evidence, claim: string): { argum
       problems.push(`${key} has numbers not in the facts: ${loose.join(', ')}.`);
       return '';
     }
-    if (BETTING.test(value)) {
+    if (BETTING.test(value) || ZH_BETTING.test(value)) {
       problems.push(`${key} uses a betting word.`);
       return '';
     }
@@ -269,6 +280,9 @@ export function verify(raw: unknown, evidence: Evidence, claim: string): { argum
   if (!pros.length || !cons.length) return { argument: null, problems };
   return { argument: { for: pros, against: cons, kill, history, lean, verdict }, problems };
 }
+
+/** Betting words in Chinese (odds, bet, wager, gamble, payout, handicap). */
+const ZH_BETTING = /赔率|下注|押注|赌|彩金|盘口|赔付/;
 
 /** He/she about the member: never guessed. */
 const PRONOUN = /\b(he|she|him|his|her|hers)\b/i;

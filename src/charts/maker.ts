@@ -1,3 +1,4 @@
+import type { Lang } from '../lang.js';
 import { FOMC_DECISIONS } from '../analysis/events.js';
 import type { Asset, History, MarketHistory } from '../analysis/history.js';
 import type { Close } from '../analysis/stats.js';
@@ -62,17 +63,18 @@ export class Charts {
   }
 
   /** The chart for a stress test: its recent past at the take's scale, the runway and what's on it; or ETF flows. */
-  async forThesis(spec: ThesisSpec, histories: History[]): Promise<ChartFile | null> {
+  async forThesis(spec: ThesisSpec, histories: History[], lang: Lang = 'en'): Promise<ChartFile | null> {
     if (spec.kind === 'flows') return this.flows(spec.asset);
     const extras = await this.extras(histories, lookbackFor(spec.horizonDays), spec.kind === 'relative');
-    extras.events = await this.runwayEvents(this.now, this.now + spec.horizonDays * DAY);
+    extras.lang = lang;
+    extras.events = await this.runwayEvents(this.now, this.now + spec.horizonDays * DAY, lang);
     return this.draw('thesis', () => thesisChart(spec, histories, extras));
   }
 
   /** One asset with its averages, or two rebased to 100. */
-  async forAssets(histories: History[]): Promise<ChartFile | null> {
+  async forAssets(histories: History[], lang: Lang = 'en'): Promise<ChartFile | null> {
     if (!histories.length) return null;
-    return this.draw('assets', () => assetsChart(histories));
+    return this.draw('assets', () => assetsChart(histories, lang));
   }
 
   /**
@@ -85,6 +87,7 @@ export class Charts {
     days: number,
     dots?: { date: string; label: string }[],
     key?: string[],
+    lang: Lang = 'en',
   ): Promise<{ chart: ChartFile; summary: Record<string, string> } | { error: string }> {
     const span = Math.min(1825, Math.max(1, Math.round(days)));
     const assets: Asset[] = [];
@@ -125,7 +128,7 @@ export class Charts {
     if (points.length < 2) return { error: `Not enough history to chart ${label}.` };
     const marks = dots?.map((d) => ({ t: Date.parse(`${d.date}T00:00:00Z`), label: d.label }));
     const drawn = series;
-    const chart = await this.draw('window', () => windowChart(drawn, span, daily, marks, key));
+    const chart = await this.draw('window', () => windowChart(drawn, span, daily, marks, key, lang));
     if (!chart) return { error: "Couldn't draw that chart right now." };
     const fmt = (v: number) => (v >= 1000 ? Math.round(v).toLocaleString('en-US') : v >= 1 ? v.toFixed(2) : v.toPrecision(4));
     const change = (from: number, to: number) => `${to >= from ? '+' : '−'}${Math.abs((to / from - 1) * 100).toFixed(1)}%`;
@@ -162,7 +165,7 @@ export class Charts {
     // Short takes are drawn from hourly prices, like their stress-test chart.
     const span = (now - (t.startAt ?? now)) / DAY + progressLeadFor(t.spec.horizonDays);
     const extras = await this.extras(histories, Math.ceil(span), t.spec.kind === 'relative');
-    if (t.checkAt && t.checkAt > now) extras.events = await this.runwayEvents(now, t.checkAt);
+    if (t.checkAt && t.checkAt > now) extras.events = await this.runwayEvents(now, t.checkAt, t.analysis?.lang ?? 'en');
     return this.draw('progress', () => progressChart(t, histories, latest, now, extras));
   }
 
@@ -191,7 +194,7 @@ export class Charts {
    * What's scheduled between two moments: FOMC decisions from the Fed's calendar, and the big macro releases
    * (CPI, PCE, GDP, jobs) the tape knows about. One label per day.
    */
-  async runwayEvents(from: number, to: number): Promise<RunwayEvent[]> {
+  async runwayEvents(from: number, to: number, lang: Lang = 'en'): Promise<RunwayEvent[]> {
     const iso = (ms: number) => new Date(ms).toISOString().slice(0, 10);
     const byDay = new Map<string, string[]>();
     const add = (date: string, name: string) => {
@@ -208,7 +211,10 @@ export class Charts {
         if (name) add(day.date, name);
       }
     }
-    const label = (date: string) => new Date(`${date}T00:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+    const label = (date: string) => {
+      const d = new Date(`${date}T00:00:00Z`);
+      return lang === 'zh' ? `${d.getUTCMonth() + 1}月${d.getUTCDate()}日` : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+    };
     return [...byDay].map(([date, names]) => ({ t: Date.parse(`${date}T12:00:00Z`), label: `${names.join(', ')} ${label(date)}` }));
   }
 

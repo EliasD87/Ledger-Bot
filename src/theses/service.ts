@@ -1,3 +1,4 @@
+import type { Lang } from '../lang.js';
 import type { EvidenceBuilder } from '../analysis/evidence.js';
 import type { ChartFile, Charts } from '../charts/maker.js';
 import type { ChatModel } from '../llm/deepseek.js';
@@ -22,7 +23,7 @@ export type TakeResult = { ok: true; thesis: Thesis; chart: ChartFile | null } |
  * A member's take, stress-tested and saved as a draft thesis (Log it puts it on the record). One path
  * for chat and /take, so both argue the same way.
  */
-export async function draftTake(deps: TakeDeps, who: { guildId: string; channelId: string; userId: string; name: string }, take: string): Promise<TakeResult> {
+export async function draftTake(deps: TakeDeps, who: { guildId: string; channelId: string; userId: string; name: string }, take: string, lang?: Lang): Promise<TakeResult> {
   const now = (deps.now ?? Date.now)();
   const result = await stressTest(
     {
@@ -33,6 +34,7 @@ export async function draftTake(deps: TakeDeps, who: { guildId: string; channelI
     },
     take,
     who.name,
+    lang,
   );
   if (!result.ok) return result;
   const { test } = result;
@@ -46,7 +48,7 @@ export async function draftTake(deps: TakeDeps, who: { guildId: string; channelI
     analysis: analysisOf(test),
     now,
   });
-  const chart = (await deps.charts?.forThesis(test.spec, test.evidence.histories).catch(() => null)) ?? null;
+  const chart = (await deps.charts?.forThesis(test.spec, test.evidence.histories, test.lang).catch(() => null)) ?? null;
   return { ok: true, thesis, chart };
 }
 
@@ -57,6 +59,7 @@ function analysisOf(test: StressTest): Analysis {
     facts: test.evidence.facts,
     sources: test.evidence.sources,
     baseRate: test.evidence.baseRate?.rate ?? null,
+    lang: test.lang,
   };
 }
 
@@ -80,13 +83,14 @@ export async function redraftTake(deps: TakeDeps, t: Thesis, author: string, spe
     author,
     spec,
     [note, ...kept].slice(0, 2),
+    t.analysis.lang ?? 'en',
   );
   if (!result.ok) return result;
   const { test } = result;
   if (!deps.theses.redraft(t.id, { claim: test.claim, spec: test.spec, analysis: analysisOf(test) })) {
     return { ok: false, reason: 'failed', message: 'That take was logged or closed in the meantime.' };
   }
-  const chart = (await deps.charts?.forThesis(test.spec, test.evidence.histories).catch(() => null)) ?? null;
+  const chart = (await deps.charts?.forThesis(test.spec, test.evidence.histories, test.lang).catch(() => null)) ?? null;
   return { ok: true, thesis: deps.theses.get(t.id)!, chart };
 }
 
@@ -140,7 +144,7 @@ export async function sharpenTake(deps: TakeDeps, t: Thesis): Promise<{ spec: Th
   if (spec.kind !== 'relative') delete spec.versus;
   const problem = specProblem(spec);
   if (problem) return { error: "Couldn't come up with a sharper version this time." };
-  const claim = claimText(spec);
+  const claim = claimText(spec, t.analysis.lang ?? 'en');
   if (claim === t.claim) return { error: 'It is already as sharp as the data allows: a clear level, direction and timeframe.' };
   // The reason is checked like any argument: every number has to be in what the model was shown.
   let why = typeof out.why === 'string' ? out.why.trim() : '';

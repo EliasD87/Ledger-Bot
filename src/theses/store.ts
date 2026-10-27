@@ -1,3 +1,4 @@
+import type { Lang } from '../lang.js';
 import type { Fact } from '../analysis/evidence.js';
 import type { Db } from '../db/index.js';
 import type { Argument } from '../reasoning/stressTest.js';
@@ -15,6 +16,8 @@ export interface Analysis {
   sources: string[];
   /** How often what the take needs has happened, when it was stress-tested (a fraction); bold below 25%. */
   baseRate?: number | null;
+  /** The member's language: cards and charts for this take use it. */
+  lang?: Lang;
 }
 
 export interface Thesis {

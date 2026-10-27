@@ -1,3 +1,4 @@
+import type { Lang } from '../lang.js';
 import { formatPrice } from '../format.js';
 
 /** What a thesis measures. Every take that goes on the record becomes one of these. */
@@ -39,7 +40,8 @@ export function specProblem(s: ThesisSpec): string | null {
 const pct = (x: number) => `${Math.round(x * 1000) / 10}%`;
 
 /** The claim in plain words, written by code so the record says exactly what will be checked. */
-export function claimText(s: ThesisSpec): string {
+export function claimText(s: ThesisSpec, lang: Lang = 'en'): string {
+  if (lang === 'zh') return claimTextZh(s);
   const p = s.pct ? ` ${pct(s.pct)}+` : '';
   switch (s.kind) {
     case 'price':
@@ -86,6 +88,31 @@ export function neededChange(s: ThesisSpec, now: number): number | null {
   if (s.kind === 'price') return s.target! / now - 1;
   if (s.kind === 'move' || s.kind === 'relative') return (s.direction === 'up' ? 1 : -1) * (s.pct ?? 0);
   return null;
+}
+
+/** 「BTC 在 30 天内高于 100,000」 */
+function claimTextZh(s: ThesisSpec): string {
+  const when = daysZh(s.horizonDays);
+  const p = s.pct ? ` ${pct(s.pct)} 以上` : '';
+  switch (s.kind) {
+    case 'price':
+      return `${s.asset} ${when}${s.direction === 'up' ? '高于' : '低于'} ${formatPrice(s.target!)}`;
+    case 'move':
+      return `${s.asset} ${when}${s.direction === 'up' ? '上涨' : '下跌'}${p}`;
+    case 'relative':
+      return `${s.asset} ${when}${s.direction === 'up' ? '跑赢' : '跑输'} ${s.versus}${p}`;
+    case 'flows':
+      return `${s.asset} 现货 ETF ${when}净${s.direction === 'up' ? '流入' : '流出'}`;
+  }
+}
+
+export function daysZh(n: number): string {
+  if (n === 1) return '一天内';
+  if (n === 7) return '一周内';
+  if (n % 7 === 0 && n <= 56) return `${n / 7} 周内`;
+  if (n === 30) return '一个月内';
+  if (n === 365) return '一年内';
+  return `${n} 天内`;
 }
 
 function days(n: number): string {

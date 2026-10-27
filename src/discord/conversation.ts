@@ -1,3 +1,4 @@
+import { langOf } from '../lang.js';
 import { ComponentType, type Message, MessageReferenceType } from 'discord.js';
 import type { Config } from '../config.js';
 import type { ChatMessage, ChatModel, Usage } from '../llm/deepseek.js';
@@ -80,7 +81,8 @@ export class Conversation {
       ...toChatMessages(chain.map((m) => toThreadMessage(m, selfId))),
     ];
 
-    const session = this.deps.tools.session({ ...base, name });
+    // Charts in this reply follow the member's language (Chinese labels for a Chinese message).
+    const session = this.deps.tools.session({ ...base, name, lang: langOf(message.content) });
     let text: string;
     let toolsUsed: string[];
     let corrected: number;

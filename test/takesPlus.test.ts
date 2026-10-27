@@ -135,7 +135,7 @@ describe('mid-take moments', () => {
     expect(m?.kind).toBe('pressure');
     const text = JSON.stringify(momentPost(store.get(t.id)!, 'pressure', 60_000, NOW).components);
     expect(text).toContain('Under pressure');
-    expect(text).toContain('−25.0% since logged');
+    expect(text).toContain('since logged −25.0%');
   });
 
   it('checks at most every 10 minutes and skips flow takes', async () => {

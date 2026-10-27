@@ -29,7 +29,8 @@ export const INK = {
 const TYPE = { title: 22, sub: 15, axis: 14, tag: 14, small: 13, note: 12 } as const;
 const PAD = { top: 82, right: 96, bottom: 40, left: 14 };
 const KEY_ROW = 24;
-const FONT = "'IBM Plex Sans', sans-serif";
+/** Chinese labels fall back to Noto Sans SC (loaded only for charts that have them, see render.ts). */
+const FONT = "'IBM Plex Sans', 'Noto Sans SC', sans-serif";
 
 export interface Point {
   /** Milliseconds since the epoch. */
@@ -75,13 +76,15 @@ export interface LineChart {
   /** Numbered markers on the main line: the days an event map talks about. */
   dots?: { t: number; label: string }[];
   /** The typical range ahead: a soft wedge from a starting value to a low/high band at a later date. */
-  cone?: { t0: number; v0: number; t1: number; lo: number; hi: number; label: string };
+  cone?: { t0: number; v0: number; t1: number; lo: number; hi: number; label: string; short?: string };
   /** Scheduled events along the time axis (FOMC, CPI): small ticks with names. */
   events?: { t: number; label: string }[];
   /** The final value of a settled take: a check or a cross on the line. */
   finish?: { t: number; v: number; ok: boolean };
   /** Lines of text under the chart: an event key. */
   key?: string[];
+  /** Axis dates in Chinese (10月28日) for a Chinese conversation. */
+  lang?: 'en' | 'zh';
 }
 
 /** A line chart: series, levels, markers and a value tag on the right; sized for phones. */
@@ -113,7 +116,7 @@ export function lineChart(c: LineChart): string {
     parts.push(`<line x1="${PAD.left}" x2="${plotRight}" y1="${f(y(v))}" y2="${f(y(v))}" stroke="${INK.grid}" stroke-width="1"/>`);
     if (tags.every((t) => Math.abs(y(v) - t.y) > 20)) parts.push(text(plotRight + 10, y(v) + 5, c.format(v), { size: TYPE.axis, color: INK.axis }));
   }
-  for (const m of timeTicks(t0, t1)) parts.push(text(x(m.t), HEIGHT - 12, m.label, { size: TYPE.axis, color: INK.axis, anchor: 'middle' }));
+  for (const m of timeTicks(t0, t1, c.lang)) parts.push(text(x(m.t), HEIGHT - 12, m.label, { size: TYPE.axis, color: INK.axis, anchor: 'middle' }));
   for (const m of c.marks ?? []) {
     const mx = x(Math.min(Math.max(m.t, t0), t1));
     parts.push(`<line x1="${f(mx)}" x2="${f(mx)}" y1="${PAD.top - 6}" y2="${plotBottom}" stroke="${INK.sub}" stroke-width="1" stroke-dasharray="2 4"/>`);
@@ -126,7 +129,7 @@ export function lineChart(c: LineChart): string {
   for (const e of events) {
     const ex = x(e.t);
     parts.push(`<line x1="${f(ex)}" x2="${f(ex)}" y1="${f(plotBottom - 8)}" y2="${f(plotBottom + 4)}" stroke="${INK.target}" stroke-width="2"/>`);
-    const short = e.label.replace(/ \d{1,2} \w+$/, '');
+    const short = e.label.replace(/ \d{1,2} \w+$| \d{1,2}月\d{1,2}日$/, '');
     const name = [e.label, short].find((n) => {
       const w = textWidth(n, TYPE.note);
       return Math.max(ex - w / 2, PAD.left) >= freeFrom && Math.min(ex + w / 2, WIDTH - 8) - Math.max(ex - w / 2, PAD.left) >= w - 1;
@@ -146,7 +149,7 @@ export function lineChart(c: LineChart): string {
       `<path d="M${f(x0)} ${f(y0)} L${f(x1)} ${f(yHi)} M${f(x0)} ${f(y0)} L${f(x1)} ${f(yLo)}" stroke="${INK.main}" stroke-opacity="0.5" stroke-width="1.2" stroke-dasharray="3 4" fill="none"/>`,
     );
     // The full label if it fits under the wedge, else the short one; on a backing so dashed lines don't cut through.
-    const name = textWidth(k.label, TYPE.note) + 14 < x1 - x0 ? k.label : 'typical range';
+    const name = textWidth(k.label, TYPE.note) + 14 < x1 - x0 ? k.label : (k.short ?? 'typical range');
     const w = textWidth(name, TYPE.note) + 10;
     const ty = yLo + 20 < plotBottom - 20 ? yLo + 17 : yHi - 9;
     coneLabel =
@@ -202,6 +205,12 @@ export function lineChart(c: LineChart): string {
   return frame(c.title, c.subtitle, parts, c.note, c.lines[0]!.color, c.key);
 }
 
+/** "28 Oct", or "10月28日" for Chinese charts. */
+function dayLabel(t: number, lang: 'en' | 'zh' = 'en'): string {
+  const d = new Date(t);
+  return lang === 'zh' ? `${d.getUTCMonth() + 1}月${d.getUTCDate()}日` : `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`;
+}
+
 export interface Bar {
   t: number;
   v: number;
@@ -213,6 +222,7 @@ export interface BarChart {
   bars: Bar[];
   format: (v: number) => string;
   note?: string;
+  lang?: 'en' | 'zh';
 }
 
 /** Daily bars around zero (ETF flows): inflows sage, outflows rose, the latest labelled. */
@@ -245,8 +255,7 @@ export function barChart(c: BarChart): string {
   const every = Math.max(1, Math.ceil(c.bars.length / 4));
   c.bars.forEach((b, i) => {
     if ((c.bars.length - 1 - i) % every !== 0) return;
-    const d = new Date(b.t);
-    parts.push(text(PAD.left + step * (i + 0.5), HEIGHT - 12, `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`, { size: TYPE.axis, color: INK.axis, anchor: 'middle' }));
+    parts.push(text(PAD.left + step * (i + 0.5), HEIGHT - 12, dayLabel(b.t, c.lang), { size: TYPE.axis, color: INK.axis, anchor: 'middle' }));
   });
   const last = c.bars.at(-1)!;
   parts.push(valueTag(plotRight + 4, tagY, c.format(last.v), last.v >= 0 ? INK.up : INK.down));
@@ -260,23 +269,18 @@ export function emptyChart(title: string, message: string): string {
 // --- pieces ---
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-/** Characters of key text that fit across the chart. */
-const KEY_CHARS = Math.floor((WIDTH - 28) / (TYPE.small * 0.56));
 
 function frame(title: string, subtitle: string | undefined, body: string[], note: string | undefined, fade: string, key: string[] = []): string {
-  const rows = key.map((k) => (k.length > KEY_CHARS ? `${k.slice(0, KEY_CHARS - 1)}…` : k));
+  const rows = key.map((k) => clip(k, TYPE.small, WIDTH - 28));
   const height = HEIGHT + (rows.length ? rows.length * KEY_ROW + 14 : 0);
   // Title and subtitle shortened to the width the source note leaves them.
   const noteW = note ? textWidth(note, TYPE.note) + 16 : 0;
-  const titleChars = Math.floor((WIDTH - PAD.left - 10 - noteW) / (TYPE.title * 0.58));
-  const subChars = Math.floor((WIDTH - PAD.left - 10) / (TYPE.sub * 0.55));
-  const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
   return [
     `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${height}" viewBox="0 0 ${WIDTH} ${height}" font-family="${FONT}">`,
     `<defs><linearGradient id="fade" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${fade}" stop-opacity="0.22"/><stop offset="1" stop-color="${fade}" stop-opacity="0"/></linearGradient></defs>`,
     `<rect width="${WIDTH}" height="${height}" rx="16" fill="${INK.panel}"/>`,
-    text(PAD.left + 2, 32, clip(title, titleChars), { size: TYPE.title, color: INK.title, weight: 600 }),
-    subtitle ? text(PAD.left + 2, 58, clip(subtitle, subChars), { size: TYPE.sub, color: INK.sub }) : '',
+    text(PAD.left + 2, 32, clip(title, TYPE.title * 1.04, WIDTH - PAD.left - 10 - noteW), { size: TYPE.title, color: INK.title, weight: 600 }),
+    subtitle ? text(PAD.left + 2, 58, clip(subtitle, TYPE.sub, WIDTH - PAD.left - 10), { size: TYPE.sub, color: INK.sub }) : '',
     note ? text(WIDTH - 14, 30, note, { size: TYPE.note, color: INK.faint, anchor: 'end' }) : '',
     ...body,
     ...(rows.length ? [`<line x1="${PAD.left}" x2="${WIDTH - 14}" y1="${HEIGHT + 4}" y2="${HEIGHT + 4}" stroke="${INK.grid}" stroke-width="1"/>`] : []),
@@ -326,9 +330,22 @@ function text(x: number, y: number, s: string, o: { size: number; color: string;
   return `<text x="${f(x)}" y="${f(y)}" font-size="${o.size}" fill="${o.color}"${o.weight ? ` font-weight="${o.weight}"` : ''}${o.anchor ? ` text-anchor="${o.anchor}"` : ''}>${escape(s)}</text>`;
 }
 
-/** Rough width of a label in IBM Plex Sans, enough to place tags and keep text inside the panel. */
+/** Rough width of a label, enough to place tags and keep text inside the panel: Chinese characters are about twice as wide. */
 function textWidth(s: string, size: number): number {
-  return s.length * size * 0.56;
+  let w = 0;
+  for (const ch of s) w += /[\u2e80-\u9fff\uff00-\uffef]/.test(ch) ? size : size * 0.56;
+  return w;
+}
+
+/** Text cut to fit a width, with an ellipsis. */
+function clip(s: string, size: number, maxW: number): string {
+  if (textWidth(s, size) <= maxW) return s;
+  let out = '';
+  for (const ch of s) {
+    if (textWidth(`${out}${ch}…`, size) > maxW) break;
+    out += ch;
+  }
+  return `${out}…`;
 }
 
 function escape(s: string): string {
@@ -363,9 +380,9 @@ export function ticks(lo: number, hi: number): number[] {
 }
 
 /** Axis labels that suit the span, about five across: hours, days, or months. */
-function timeTicks(t0: number, t1: number): { t: number; label: string }[] {
+function timeTicks(t0: number, t1: number, lang: 'en' | 'zh' = 'en'): { t: number; label: string }[] {
   const days = (t1 - t0) / 86_400_000;
-  if (days > 75) return monthTicks(t0, t1);
+  if (days > 75) return monthTicks(t0, t1, lang);
   const step = days <= 1.5 ? 0.25 : days <= 3 ? 0.5 : [1, 2, 3, 5, 7, 10, 14].find((s) => days / s <= 5) ?? 14;
   const out: { t: number; label: string }[] = [];
   const first = Math.ceil(t0 / (step * 86_400_000)) * step * 86_400_000;
@@ -373,13 +390,13 @@ function timeTicks(t0: number, t1: number): { t: number; label: string }[] {
     const share = (t - t0) / (t1 - t0);
     if (share < 0.06 || share > 0.94) continue;
     const d = new Date(t);
-    out.push({ t, label: step < 1 ? `${String(d.getUTCHours()).padStart(2, '0')}:00` : `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}` });
+    out.push({ t, label: step < 1 ? `${String(d.getUTCHours()).padStart(2, '0')}:00` : dayLabel(t, lang) });
   }
   return out;
 }
 
 /** Month starts across the range: monthly for short spans, every 2nd, 3rd or 6th for longer ones. */
-function monthTicks(t0: number, t1: number): { t: number; label: string }[] {
+function monthTicks(t0: number, t1: number, lang: 'en' | 'zh' = 'en'): { t: number; label: string }[] {
   const months = (t1 - t0) / (30 * 86_400_000);
   const every = months > 30 ? 6 : months > 14 ? 3 : months > 6 ? 2 : 1;
   const out: { t: number; label: string }[] = [];
@@ -395,7 +412,8 @@ function monthTicks(t0: number, t1: number): { t: number; label: string }[] {
     if (t > t1) break;
     // Keep labels clear of the edges.
     const share = (t - t0) / (t1 - t0);
-    if (share > 0.05 && share < 0.95 && m % every === 0) out.push({ t, label: m === 0 ? `${MONTHS[m]} '${String(y).slice(2)}` : MONTHS[m]! });
+    const name = lang === 'zh' ? (m === 0 ? `${y}年1月` : `${m + 1}月`) : m === 0 ? `${MONTHS[m]} '${String(y).slice(2)}` : MONTHS[m]!;
+    if (share > 0.05 && share < 0.95 && m % every === 0) out.push({ t, label: name });
     m++;
   }
   return out;

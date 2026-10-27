@@ -1,3 +1,4 @@
+import type { Lang } from './lang.js';
 import type { MarketContext } from './analysis/context.js';
 import type { WebNews } from './news/webNews.js';
 import { type AlertDepsForCreate, type AlertRequest, createAlert, describeAlert } from './alerts/service.js';
@@ -103,7 +104,7 @@ const TAKE_TOOLS: Tool[] = [
         '"Log it" button; your own text should then be one short line. One per message.',
       parameters: {
         type: 'object',
-        properties: { take: { type: 'string', description: "The speaker's take, in their words (fix obvious typos only)" } },
+        properties: { take: { type: 'string', description: "The speaker's take, in their own words and language (never translate; fix obvious typos only)" } },
         required: ['take'],
         additionalProperties: false,
       },
@@ -440,7 +441,8 @@ export class ToolKit {
         if (draft) return { error: 'One stress test per message; this one already has a card.' };
         const text = typeof args.take === 'string' ? args.take.trim() : '';
         if (!text) return { error: 'What is the take?' };
-        const result = await draftTake(take, { ...ctx, name: ctx.name ?? members.nameOf(ctx.userId) }, text);
+        // The card follows the conversation's language, even if the model translated the take.
+        const result = await draftTake(take, { ...ctx, name: ctx.name ?? members.nameOf(ctx.userId) }, text, ctx.lang === 'zh' ? 'zh' : undefined);
         if (!result.ok) {
           return result.reason === 'not-a-take'
             ? { not_a_take: result.message, note: 'Answer them normally instead.' }
@@ -475,7 +477,7 @@ export class ToolKit {
           return `${i + 1} · ${day(m.date)} · ${signedPct(m.move).replace(/(\.\d)\d%/, '$1%')} · ${h ? `${h.title} (${h.source})` : 'no clear news that day'}`;
         });
         if (!draft && this.deps.charts) {
-          const drawn = await this.deps.charts.window([main.asset.symbol], days, dots, key).catch(() => null);
+          const drawn = await this.deps.charts.window([main.asset.symbol], days, dots, key, ctx.lang ?? 'en').catch(() => null);
           if (drawn && !('error' in drawn)) offerChart(drawn.chart, 3);
         }
         return {
@@ -509,7 +511,7 @@ export class ToolKit {
         const assets = Array.isArray(args.assets) ? args.assets.map(String).filter(Boolean).slice(0, 2) : [];
         if (!assets.length) return { error: 'Which asset?' };
         if (draft) return { skipped: 'The stress-test card already has its chart.' };
-        const result = await this.deps.charts!.window(assets, typeof args.days === 'number' ? args.days : 365);
+        const result = await this.deps.charts!.window(assets, typeof args.days === 'number' ? args.days : 365, undefined, undefined, ctx.lang ?? 'en');
         if ('error' in result) return { error: result.error };
         offerChart(result.chart, 2);
         return { attached: 'The chart is attached under your reply. Talk about what it shows in a line or two; quote these numbers exactly.', ...result.summary };
@@ -520,7 +522,7 @@ export class ToolKit {
         const e = await evidence.forAssets(assets);
         if ('error' in e) return { error: e.error };
         if (!draft && !charts.length) {
-          const chart = await this.deps.charts?.forAssets(e.histories).catch(() => null);
+          const chart = await this.deps.charts?.forAssets(e.histories, ctx.lang ?? 'en').catch(() => null);
           if (chart) offerChart(chart, 1);
         }
         return { facts: e.facts.map((f) => f.text), sources: e.sources.join(', '), note: 'Reason from these facts; quote numbers exactly; no price predictions.' };
@@ -650,6 +652,8 @@ export interface MemoryTools {
 export interface ToolContext {
   guildId: string;
   channelId: string;
+  /** The language the member wrote in: charts drawn for this reply use it. */
+  lang?: Lang;
   /** The member who is speaking. */
   userId: string;
 }

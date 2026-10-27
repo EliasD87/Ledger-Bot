@@ -4,6 +4,7 @@ import type { FlowReport } from '../desk/desk.js';
 import { formatUsd } from '../format.js';
 import { type ThesisSpec, claimText, measureLabel } from '../theses/spec.js';
 import type { Thesis } from '../theses/store.js';
+import type { Lang } from '../lang.js';
 import { INK, type Level, type Line, type LineChart, type Mark, type Point, barChart, lineChart } from './draw.js';
 
 const DAY = 86_400_000;
@@ -11,6 +12,79 @@ const at = (c: Close): Point => ({ t: Date.parse(`${c.date}T00:00:00Z`), v: c.cl
 /** "+3.1%": one decimal is plenty on a chart. */
 const signedPct = (x: number) => `${x >= 0 ? '+' : '−'}${Math.abs(x * 100).toFixed(1)}%`;
 const shortDate = (ms: number) => new Date(ms).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+const shortDateZh = (ms: number) => `${new Date(ms).getUTCMonth() + 1}月${new Date(ms).getUTCDate()}日`;
+
+function windowLabelZh(days: number): string {
+  if (days <= 1) return '过去 24 小时';
+  if (days === 7) return '过去 7 天';
+  if (days % 365 === 0) return days === 365 ? '过去一年' : `过去 ${days / 365} 年`;
+  if (days >= 28 && days <= 31) return '过去一个月';
+  if (days % 30 === 0) return `过去 ${days / 30} 个月`;
+  return `过去 ${days} 天`;
+}
+
+/** The fixed words on charts: English, or Chinese for a Chinese conversation. */
+const WORDS = {
+  en: {
+    date: shortDate,
+    checkBack: (d: string) => `check-back ${d}`,
+    logged: 'logged',
+    typicalBy: (d: string) => `typical range by ${d}`,
+    typicalShort: 'typical range',
+    typicalWhenLogged: 'typical range when logged',
+    target: (v: string) => `target ${v}`,
+    needs: (p: string, v: string) => `needs ${p} · ${v}`,
+    loggedAt: (v: string) => `logged at ${v}`,
+    base: (d: string) => `100 = ${d}`,
+    window: (days: number) => windowLabel(days),
+    since: (d: string) => `since ${d}`,
+    measure: (sp: ThesisSpec) => measureLabel(sp),
+    thesisSub: (m: string, w: string, d: string, now: string) => `${m} · ${w}, then the runway to ${d} · now ${now}`,
+    pairSub: (d: string, gap: string, end: string) => `both = 100 on ${d} · the gap is ${gap} pts · runway to ${end}`,
+    progressPairSub: (a: string, b: string, d: string) => `since logged: ${a}, ${b} · checks back ${d}`,
+    progressSub: (m: string, now: string, d: string) => `${m} · now ${now} · checks back ${d}`,
+    verdict: (ok: boolean): string => (ok ? 'aged well' : 'aged badly'),
+    verdictPairSub: (v: string, a: string, b: string) => `${v} · ${a}, ${b} from logging to check-back`,
+    verdictSub: (v: string, end: string, inside: boolean | null) =>
+      `${v} · finished at ${end}${inside === null ? '' : `, ${inside ? 'inside' : 'outside'} its typical range`}`,
+    windowSub: (w: string, now: string, ch: string) => `${w} · now ${now} (${ch})`,
+    vs: (a: string, b: string) => `${a} vs ${b}`,
+    windowPairSub: (d: string, w: string, gap: string) => `both = 100 on ${d} · ${w} · the gap is ${gap} pts`,
+    yearSub: (now: string) => `last year · now ${now}`,
+    avg50: '50-day',
+    avg200: '200-day',
+  },
+  zh: {
+    date: shortDateZh,
+    checkBack: (d: string) => `复盘 ${d}`,
+    logged: '记录',
+    typicalBy: (d: string) => `${d}前的常见区间`,
+    typicalShort: '常见区间',
+    typicalWhenLogged: '记录时的常见区间',
+    target: (v: string) => `目标 ${v}`,
+    needs: (p: string, v: string) => `需要 ${p} · ${v}`,
+    loggedAt: (v: string) => `记录时 ${v}`,
+    base: (d: string) => `100 = ${d}`,
+    window: windowLabelZh,
+    since: (d: string) => `${d} 以来`,
+    measure: (sp: ThesisSpec) => (sp.kind === 'relative' ? `${sp.asset}/${sp.versus}` : sp.kind === 'flows' ? `${sp.asset} ETF 净流量` : `${sp.asset} 价格`),
+    thesisSub: (m: string, w: string, d: string, now: string) => `${m} · ${w}，${d} 复盘 · 现在 ${now}`,
+    pairSub: (d: string, gap: string, end: string) => `两者在 ${d} = 100 · 差距 ${gap} 点 · ${end} 复盘`,
+    progressPairSub: (a: string, b: string, d: string) => `记录以来：${a}，${b} · ${d} 复盘`,
+    progressSub: (m: string, now: string, d: string) => `${m} · 现在 ${now} · ${d} 复盘`,
+    verdict: (ok: boolean): string => (ok ? '应验了' : '没应验'),
+    verdictPairSub: (v: string, a: string, b: string) => `${v} · 记录到复盘：${a}，${b}`,
+    verdictSub: (v: string, end: string, inside: boolean | null) =>
+      `${v} · 收于 ${end}${inside === null ? '' : inside ? '，在常见区间内' : '，超出常见区间'}`,
+    windowSub: (w: string, now: string, ch: string) => `${w} · 现在 ${now}（${ch}）`,
+    vs: (a: string, b: string) => `${a} 对比 ${b}`,
+    windowPairSub: (d: string, w: string, gap: string) => `两者在 ${d} = 100 · ${w} · 差距 ${gap} 点`,
+    yearSub: (now: string) => `过去一年 · 现在 ${now}`,
+    avg50: '50 日均线',
+    avg200: '200 日均线',
+  },
+};
+type Words = (typeof WORDS)['en'];
 
 /** Two assets' prices at the same moments, for comparison charts. */
 export interface PairPoint {
@@ -30,6 +104,8 @@ export interface ChartExtras {
   hourly?: Point[];
   hourlyPairs?: PairPoint[];
   events?: RunwayEvent[];
+  /** Chinese labels for a Chinese conversation. */
+  lang?: Lang;
 }
 
 /** Price-like numbers on an axis: 2,374 · 102.5 · 0.04312. */
@@ -91,7 +167,7 @@ function compareLines(pairs: PairPoint[], symA: string, symB: string, baseT?: nu
 }
 
 const indexFormat = (v: number) => v.toFixed(0);
-const baseLevel = (t: number): Level => ({ v: 100, label: `100 = ${shortDate(t)}`, color: INK.faint });
+const baseLevel = (t: number, w: Words = WORDS.en): Level => ({ v: 100, label: w.base(w.date(t)), color: INK.faint });
 
 /** History shown before a take: about three times its horizon, at least a week, at most two years. */
 export function lookbackFor(horizonDays: number): number {
@@ -120,22 +196,26 @@ const sourcesOf = (histories: History[]) => [...new Set(histories.map((h) => h.s
  */
 export function thesisChart(spec: ThesisSpec, histories: History[], extras: ChartExtras = {}): string {
   const lookback = lookbackFor(spec.horizonDays);
+  const lang = extras.lang ?? 'en';
+  const w = WORDS[lang];
+  const title = claimText(spec, lang);
   if (spec.kind === 'relative' && histories.length >= 2) {
     const [a, b] = histories as [History, History];
     const pairs = extras.hourlyPairs?.length ? extras.hourlyPairs : dailyPairs(lastDays(a.closes, lookback), b.closes);
-    if (pairs.length < 2) return lineChart({ title: claimText(spec), lines: [], format: indexFormat });
+    if (pairs.length < 2) return lineChart({ title, lines: [], format: indexFormat });
     const c = compareLines(pairs, a.asset.symbol, b.asset.symbol);
     const check = pairs.at(-1)!.t + spec.horizonDays * DAY;
     return lineChart({
-      title: claimText(spec),
-      subtitle: `both = 100 on ${shortDate(c.base.t)} · the gap is ${signedPct(c.a - c.b).replace('%', ' pts')} · runway to ${shortDate(check)}`,
+      title,
+      subtitle: w.pairSub(w.date(c.base.t), signedPct(c.a - c.b).replace('%', ''), w.date(check)),
       lines: c.lines,
-      levels: [baseLevel(c.base.t)],
-      marks: [{ t: check, label: `check-back ${shortDate(check)}` }],
+      levels: [baseLevel(c.base.t, w)],
+      marks: [{ t: check, label: w.checkBack(w.date(check)) }],
       events: extras.events,
       xEnd: check,
       format: indexFormat,
       note: sourcesOf(histories),
+      lang,
     });
   }
   const daily = measuredSeries(spec, histories);
@@ -145,16 +225,17 @@ export function thesisChart(spec: ThesisSpec, histories: History[], extras: Char
   const format = axisFormat(last.v);
   const range = typicalRange(daily, last.v, spec.horizonDays, weekdaysOnly(histories));
   return lineChart({
-    title: claimText(spec),
-    subtitle: `${measureLabel(spec)} · ${windowLabel(lookback)}, then the runway to ${shortDate(check)} · now ${format(last.v)}`,
-    lines: !extras.hourly && lookback >= 150 ? withAverages(daily, points.length) : [{ points, color: INK.main, width: 2.4, fill: true }],
-    levels: needLevel(spec, last.v, format),
-    marks: [{ t: check, label: `check-back ${shortDate(check)}` }],
-    ...(range ? { cone: { t0: last.t, v0: last.v, t1: check, ...range, label: `typical range by ${shortDate(check)}` } } : {}),
+    title,
+    subtitle: w.thesisSub(w.measure(spec), w.window(lookback), w.date(check), format(last.v)),
+    lines: !extras.hourly && lookback >= 150 ? withAverages(daily, points.length, w) : [{ points, color: INK.main, width: 2.4, fill: true }],
+    levels: needLevel(spec, last.v, format, w),
+    marks: [{ t: check, label: w.checkBack(w.date(check)) }],
+    ...(range ? { cone: { t0: last.t, v0: last.v, t1: check, ...range, label: w.typicalBy(w.date(check)), short: w.typicalShort } } : {}),
     events: extras.events,
     xEnd: check,
     format,
     note: sourcesOf(histories),
+    lang,
   });
 }
 
@@ -177,20 +258,22 @@ export function windowChart(
   daily?: { closes: Close[] },
   dots?: { t: number; label: string }[],
   key?: string[],
+  lang: Lang = 'en',
 ): string {
+  const w = WORDS[lang];
   const t0 = series.points[0]?.t ?? series.pairs?.[0]?.t ?? 0;
   const tEnd = series.points.at(-1)?.t ?? series.pairs?.at(-1)?.t ?? t0;
   // A shorter history than asked for (a new listing) is labelled by its start, not the window.
-  const window = (tEnd - t0) / DAY < days - 3 && days >= 30 ? `since ${shortDate(t0)}` : windowLabel(days);
-  const extra: Partial<LineChart> = { ...(dots?.length ? { dots } : {}), ...(key?.length ? { key } : {}) };
+  const window = (tEnd - t0) / DAY < days - 3 && days >= 30 ? w.since(w.date(t0)) : w.window(days);
+  const extra: Partial<LineChart> = { ...(dots?.length ? { dots } : {}), ...(key?.length ? { key } : {}), lang };
   if (series.pairs && series.pairs.length >= 2) {
     const [symA, symB] = series.label.split('/') as [string, string];
     const c = compareLines(series.pairs, symA, symB);
     return lineChart({
-      title: `${symA} vs ${symB}`,
-      subtitle: `both = 100 on ${shortDate(c.base.t)} · ${window} · the gap is ${signedPct(c.a - c.b).replace('%', ' pts')}`,
+      title: w.vs(symA, symB),
+      subtitle: w.windowPairSub(w.date(c.base.t), window, signedPct(c.a - c.b).replace('%', '')),
       lines: c.lines,
-      levels: [baseLevel(c.base.t)],
+      levels: [baseLevel(c.base.t, w)],
       format: indexFormat,
       note: series.source,
       ...extra,
@@ -200,10 +283,10 @@ export function windowChart(
   const first = series.points[0]?.v ?? last;
   const format = axisFormat(last);
   const lines: Line[] =
-    daily && days >= 90 ? withAverages(daily.closes, series.points.length) : [{ points: series.points, color: INK.main, width: 2.4, fill: true }];
+    daily && days >= 90 ? withAverages(daily.closes, series.points.length, w) : [{ points: series.points, color: INK.main, width: 2.4, fill: true }];
   return lineChart({
     title: series.label,
-    subtitle: `${window} · now ${format(last)} (${signedPct(first ? last / first - 1 : 0)})`,
+    subtitle: w.windowSub(window, format(last), signedPct(first ? last / first - 1 : 0)),
     lines,
     format,
     note: series.source,
@@ -221,21 +304,23 @@ export function windowLabel(days: number): string {
 }
 
 /** One asset with its averages, or two rebased to 100: for analysis replies. */
-export function assetsChart(histories: History[]): string {
+export function assetsChart(histories: History[], lang: Lang = 'en'): string {
+  const w = WORDS[lang];
   if (histories.length >= 2) {
     const [a, b] = histories as [History, History];
     const pairs = dailyPairs(lastDays(a.closes, 365), b.closes);
-    return windowChart({ label: `${a.asset.symbol}/${b.asset.symbol}`, points: [], pairs, source: sourcesOf(histories) }, 365);
+    return windowChart({ label: `${a.asset.symbol}/${b.asset.symbol}`, points: [], pairs, source: sourcesOf(histories) }, 365, undefined, undefined, undefined, lang);
   }
   const h = histories[0]!;
   const closes = lastDays(h.closes, 365);
   const format = axisFormat(closes.at(-1)?.close ?? 0);
   return lineChart({
     title: h.asset.symbol,
-    subtitle: `last year · now ${format(closes.at(-1)?.close ?? 0)}`,
-    lines: withAverages(h.closes, closes.length),
+    subtitle: w.yearSub(format(closes.at(-1)?.close ?? 0)),
+    lines: withAverages(h.closes, closes.length, w),
     format,
     note: h.source,
+    lang,
   });
 }
 
@@ -253,23 +338,26 @@ export function progressChart(t: Thesis, histories: History[], latest: number | 
   const start = t.startAt ?? now;
   const end = t.checkAt ?? now;
   const lead = progressLeadFor(t.spec.horizonDays);
-  const marks: Mark[] = [{ t: start, label: 'logged' }];
+  const lang = extras.lang ?? t.analysis?.lang ?? 'en';
+  const w = WORDS[lang];
+  const marks: Mark[] = [{ t: start, label: w.logged }];
   if (t.spec.kind === 'relative' && histories.length >= 2) {
     const [a, b] = histories as [History, History];
     const pairs = (extras.hourlyPairs?.length ? extras.hourlyPairs : dailyPairs(a.closes, b.closes)).filter((p) => p.t >= start - lead * DAY);
     if (pairs.length < 2) return lineChart({ title: `#${t.id} ${t.claim}`, lines: [], format: indexFormat });
     const c = compareLines(pairs, a.asset.symbol, b.asset.symbol, start);
-    if (end > pairs.at(-1)!.t) marks.push({ t: end, label: `check-back ${shortDate(end)}` });
+    if (end > pairs.at(-1)!.t) marks.push({ t: end, label: w.checkBack(w.date(end)) });
     return lineChart({
       title: `#${t.id} ${t.claim}`,
-      subtitle: `since logged: ${a.asset.symbol} ${signedPct(c.a)}, ${b.asset.symbol} ${signedPct(c.b)} · checks back ${shortDate(end)}`,
+      subtitle: w.progressPairSub(`${a.asset.symbol} ${signedPct(c.a)}`, `${b.asset.symbol} ${signedPct(c.b)}`, w.date(end)),
       lines: c.lines,
-      levels: [baseLevel(c.base.t)],
+      levels: [baseLevel(c.base.t, w)],
       marks,
       events: extras.events,
       xEnd: Math.max(end, pairs.at(-1)!.t),
       format: indexFormat,
       note: sourcesOf(histories),
+      lang,
     });
   }
   const daily = measuredSeries(t.spec, histories);
@@ -277,23 +365,24 @@ export function progressChart(t: Thesis, histories: History[], latest: number | 
   if (latest !== null && points.length) points[points.length - 1] = { t: Math.max(points.at(-1)!.t, Math.min(now, end)), v: latest };
   const last = points.at(-1) ?? { t: now, v: t.startValue ?? 0 };
   const format = axisFormat(last.v);
-  if (end > last.t) marks.push({ t: end, label: `check-back ${shortDate(end)}` });
+  if (end > last.t) marks.push({ t: end, label: w.checkBack(w.date(end)) });
   const left = (end - last.t) / DAY;
   const range = left >= 1 ? typicalRange(daily, last.v, left, weekdaysOnly(histories)) : null;
   return lineChart({
     title: `#${t.id} ${t.claim}`,
-    subtitle: `${measureLabel(t.spec)} · now ${format(last.v)} · checks back ${shortDate(end)}`,
+    subtitle: w.progressSub(w.measure(t.spec), format(last.v), w.date(end)),
     lines: [{ points, color: INK.main, width: 2.4, fill: true }],
     levels: [
-      ...(t.startValue !== null ? [{ v: t.startValue, label: `logged at ${format(t.startValue)}`, color: INK.sub }] : []),
-      ...needLevel(t.spec, t.startValue ?? last.v, format),
+      ...(t.startValue !== null ? [{ v: t.startValue, label: w.loggedAt(format(t.startValue)), color: INK.sub }] : []),
+      ...needLevel(t.spec, t.startValue ?? last.v, format, w),
     ],
     marks,
-    ...(range ? { cone: { t0: last.t, v0: last.v, t1: end, ...range, label: `typical range by ${shortDate(end)}` } } : {}),
+    ...(range ? { cone: { t0: last.t, v0: last.v, t1: end, ...range, label: w.typicalBy(w.date(end)), short: w.typicalShort } } : {}),
     events: extras.events,
     format,
     xEnd: Math.max(end, last.t),
     note: sourcesOf(histories),
+    lang,
   });
 }
 
@@ -306,9 +395,11 @@ export function verdictChart(t: Thesis, histories: History[], endValue: number, 
   const end = t.checkAt ?? Date.now();
   const lead = progressLeadFor(t.spec.horizonDays);
   const title = `#${t.id} ${t.claim}`;
+  const lang = extras.lang ?? t.analysis?.lang ?? 'en';
+  const w = WORDS[lang];
   // The verdict leads the subtitle: a long claim can be shortened to fit, the verdict never is.
-  const verdict = held ? 'aged well' : 'aged badly';
-  const marks: Mark[] = [{ t: start, label: 'logged' }];
+  const verdict = w.verdict(held);
+  const marks: Mark[] = [{ t: start, label: w.logged }];
   if (t.spec.kind === 'relative' && histories.length >= 2) {
     const [a, b] = histories as [History, History];
     const pairs = (extras.hourlyPairs?.length ? extras.hourlyPairs : dailyPairs(a.closes, b.closes)).filter(
@@ -319,13 +410,14 @@ export function verdictChart(t: Thesis, histories: History[], endValue: number, 
     const last = c.lines[0]!.points.at(-1)!;
     return lineChart({
       title,
-      subtitle: `${verdict} · ${a.asset.symbol} ${signedPct(c.a)}, ${b.asset.symbol} ${signedPct(c.b)} from logging to check-back`,
+      subtitle: w.verdictPairSub(verdict, `${a.asset.symbol} ${signedPct(c.a)}`, `${b.asset.symbol} ${signedPct(c.b)}`),
       lines: c.lines,
-      levels: [baseLevel(c.base.t)],
+      levels: [baseLevel(c.base.t, w)],
       marks,
       finish: { t: last.t, v: last.v, ok: held },
       format: indexFormat,
       note: sourcesOf(histories),
+      lang,
     });
   }
   const daily = measuredSeries(t.spec, histories);
@@ -339,18 +431,19 @@ export function verdictChart(t: Thesis, histories: History[], endValue: number, 
   const inside = range ? endValue >= range.lo && endValue <= range.hi : null;
   return lineChart({
     title,
-    subtitle: `${verdict} · finished at ${format(endValue)}${inside === null ? '' : `, ${inside ? 'inside' : 'outside'} its typical range`}`,
+    subtitle: w.verdictSub(verdict, format(endValue), inside),
     lines: [{ points, color: INK.main, width: 2.4, fill: true }],
     levels: [
-      ...(t.startValue !== null ? [{ v: t.startValue, label: `logged at ${format(t.startValue)}`, color: INK.sub }] : []),
-      ...needLevel(t.spec, startValue, format),
+      ...(t.startValue !== null ? [{ v: t.startValue, label: w.loggedAt(format(t.startValue)), color: INK.sub }] : []),
+      ...needLevel(t.spec, startValue, format, w),
     ],
     marks,
-    ...(range ? { cone: { t0: start, v0: startValue, t1: end, ...range, label: 'typical range when logged' } } : {}),
+    ...(range ? { cone: { t0: start, v0: startValue, t1: end, ...range, label: w.typicalWhenLogged, short: w.typicalShort } } : {}),
     finish: { t: end, v: endValue, ok: held },
     format,
     xEnd: end,
     note: sourcesOf(histories),
+    lang,
   });
 }
 
@@ -379,23 +472,23 @@ export function flowsChart(r: FlowReport): string {
   });
 }
 
-function withAverages(all: Close[], shown: number): Line[] {
+function withAverages(all: Close[], shown: number, w: Words = WORDS.en): Line[] {
   const from = at(all[Math.max(0, all.length - shown)]!).t;
   const keep = (p: Point[]) => p.filter((x) => x.t >= from);
   const lines: Line[] = [{ points: all.slice(-shown).map(at), color: INK.main, width: 2.4, fill: true }];
   const a50 = keep(rolling(all, 50));
   const a200 = keep(rolling(all, 200));
-  if (a50.length > 10) lines.push({ points: a50, color: INK.avg50, dash: true, label: '50-day' });
-  if (a200.length > 10) lines.push({ points: a200, color: INK.avg200, dash: true, label: '200-day' });
+  if (a50.length > 10) lines.push({ points: a50, color: INK.avg50, dash: true, label: w.avg50 });
+  if (a200.length > 10) lines.push({ points: a200, color: INK.avg200, dash: true, label: w.avg200 });
   return lines;
 }
 
 /** The line a take has to cross: the target, or start ± the minimum move. */
-function needLevel(spec: ThesisSpec, start: number, format: (v: number) => string): Level[] {
-  if (spec.kind === 'price' && spec.target) return [{ v: spec.target, label: `target ${format(spec.target)}`, color: INK.target }];
+function needLevel(spec: ThesisSpec, start: number, format: (v: number) => string, w: Words = WORDS.en): Level[] {
+  if (spec.kind === 'price' && spec.target) return [{ v: spec.target, label: w.target(format(spec.target)), color: INK.target }];
   if (spec.kind === 'move' && spec.pct) {
     const v = start * (1 + (spec.direction === 'up' ? spec.pct : -spec.pct));
-    return [{ v, label: `needs ${spec.direction === 'up' ? '+' : '−'}${Math.round(spec.pct * 1000) / 10}% · ${format(v)}`, color: INK.target }];
+    return [{ v, label: w.needs(`${spec.direction === 'up' ? '+' : '−'}${Math.round(spec.pct * 1000) / 10}%`, format(v)), color: INK.target }];
   }
   return [];
 }
