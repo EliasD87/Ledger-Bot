@@ -1,4 +1,4 @@
-import { langOf } from '../lang.js';
+import { type Lang, langOf } from '../lang.js';
 import { ComponentType, type Message, MessageReferenceType } from 'discord.js';
 import type { Config } from '../config.js';
 import type { ChatMessage, ChatModel, Usage } from '../llm/deepseek.js';
@@ -13,9 +13,33 @@ import type { ToolKit } from '../tools.js';
 import { cardCaption, postableReply, readableContent, roleMentionIds } from './text.js';
 import { thesisContainer } from './thesisCards.js';
 import { type ThreadMessage, collectChain, toChatMessages } from './thread.js';
-import { cards, say } from './ui.js';
+import { cards, replacing, say } from './ui.js';
 
 const MAX_CHARS_PER_MESSAGE = 1200;
+/** A reply still working after this long gets a short "one moment" line, edited into the answer when it's ready. */
+const HOLD_AFTER_MS = 5_000;
+/** Tools slow enough that the line goes up as soon as they start. */
+const SLOW_TOOLS = new Set(['stress_test', 'map_events']);
+
+/** The short line Ledger posts while it works, matched to what it's doing. */
+export function holdLine(tool: string | undefined, lang: Lang): string {
+  const zh = lang === 'zh';
+  switch (tool) {
+    case 'stress_test':
+      return zh ? '正在用数据检验这个观点，稍等。' : 'Testing that against the data. One moment.';
+    case 'map_events':
+      return zh ? '正在梳理那些大涨大跌的日子和当时的新闻，稍等。' : 'Going through the big days and what was reported. One moment.';
+    case 'search_news':
+    case 'get_news':
+      return zh ? '正在看最新的新闻，稍等。' : 'Checking the latest headlines. One moment.';
+    case 'analyze':
+    case 'show_chart':
+    case 'get_price':
+      return zh ? '正在调取数据，稍等。' : 'Pulling up the numbers. One moment.';
+    default:
+      return zh ? '正在查，稍等。' : 'Looking into it. One moment.';
+  }
+}
 
 export interface ConversationDeps {
   config: Config;
@@ -82,7 +106,17 @@ export class Conversation {
     ];
 
     // Charts in this reply follow the member's language (Chinese labels for a Chinese message).
-    const session = this.deps.tools.session({ ...base, name, lang: langOf(message.content) });
+    const lang = langOf(message.content);
+    const session = this.deps.tools.session({ ...base, name, lang });
+    // A slow answer never looks stuck: a short line goes up first (at once for a stress test, else after a
+    // few seconds), and the full answer replaces it in the same message.
+    let tool: string | undefined;
+    // Set from callbacks, so TypeScript can't follow it; typed by hand.
+    let held = null as Promise<Message | null> | null;
+    const hold = () => {
+      held ??= message.reply({ content: holdLine(tool, lang), allowedMentions: { parse: [], repliedUser: true } }).catch(() => null);
+    };
+    const holdTimer = setTimeout(hold, HOLD_AFTER_MS);
     let text: string;
     let toolsUsed: string[];
     let corrected: number;
@@ -95,7 +129,11 @@ export class Conversation {
       const answer = await answerChecked(llm, prompt, {
         maxTokens: config.llm.maxReplyTokens,
         tools: this.deps.tools.definitions,
-        runTool: (call) => session.run(call),
+        runTool: (call) => {
+          tool = call.name;
+          if (SLOW_TOOLS.has(call.name)) hold();
+          return session.run(call);
+        },
         onUsage,
       }, PERSONA_EXAMPLES);
       text = postableReply(answer.text) || LINES.empty;
@@ -103,21 +141,32 @@ export class Conversation {
       corrected = answer.problems.length;
     } catch (err) {
       log.error('DeepSeek request failed', err);
-      await message.reply(LINES.llmError).catch(() => {});
+      clearTimeout(holdTimer);
+      const placeholder = held ? await held : null;
+      await (placeholder ? placeholder.edit({ content: LINES.llmError }) : message.reply(LINES.llmError)).catch(() => {});
       return;
     } finally {
       clearInterval(typing);
     }
+    clearTimeout(holdTimer);
+    const placeholder = held ? await held : null;
 
     // A take stress-tested during this reply rides along as its card (with Log it), under the text.
     // Charts ride along as files: inside the card for a stress test, under the text for an analysis.
     const { draft } = session;
     const files = session.charts.map((c) => ({ attachment: c.data, name: c.name }));
-    const sent = await message.reply(
-      draft
-        ? { ...cards([say(cardCaption(text)), thesisContainer(draft, { with: [], against: [] }, { chart: files.length > 0 })], { replyPing: true }), files }
-        : { content: text, files },
-    );
+    const cardPayload = draft
+      ? { ...cards([say(cardCaption(text)), thesisContainer(draft, { with: [], against: [] }, { chart: files.length > 0 })], { replyPing: true }), files }
+      : null;
+    const payload = cardPayload ?? { content: text, files };
+    // Into the "one moment" line if there is one (a plain message turns into cards); else a new reply.
+    const edited = placeholder
+      ? await placeholder
+          .edit(cardPayload ? replacing(placeholder, cardPayload) : { content: text, files })
+          .catch((err: unknown) => (log.warn('Editing the hold line failed', err), null))
+      : null;
+    if (placeholder && !edited) await placeholder.delete().catch(() => {});
+    const sent = edited ?? (await message.reply(payload));
     if (draft) theses.attachMessage(draft.id, message.channelId, sent.id);
     this.deps.replies.remember(sent.id, rootId, message.channelId);
     metrics.record({

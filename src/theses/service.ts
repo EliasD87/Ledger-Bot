@@ -104,7 +104,7 @@ Reply: {"spec":{...},"why":"one short sentence on what changed and why it's a sh
 
 /** A sharper version of a draft's claim, proposed by the model from the timeframe table. */
 export async function sharpenTake(deps: TakeDeps, t: Thesis): Promise<{ spec: ThesisSpec; claim: string; why: string } | { error: string }> {
-  const table = await deps.evidence.timeframes(t.spec, [7, 14, 30, 60, 90, 180, t.spec.horizonDays]);
+  const table = await deps.evidence.timeframes(t.spec, [1, 3, 7, 14, 30, 60, 90, 180, t.spec.horizonDays]);
   if ('error' in table) return { error: table.error };
   const lines = table.map((r) => `${r.days} days: ${Math.round(r.rate * 100)}% of ${r.windows} windows (median ${(r.median * 100).toFixed(1)}%)`);
   const turn = await deps.llm.complete(

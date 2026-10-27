@@ -74,7 +74,7 @@ const WORDS = {
     reached: (where: string, left: string, by: string) => `**On the way.** ${where}: past the line with ${left} left. It still has to be there on ${by}.`,
     slipped: (where: string, left: string, by: string) => `**Gave it back.** ${where}: short of the line again, ${left} left before ${by}.`,
     pressure: (where: string, left: string) => `**Under pressure.** ${where}: further against the take than its usual range for the whole window, with ${left} left.`,
-    days: (d: number) => (d % 30 === 0 && d >= 30 ? (d === 30 ? '1 month' : `${d / 30} months`) : d % 7 === 0 ? (d === 7 ? '1 week' : `${d / 7} weeks`) : `${d} days`),
+    days: (d: number) => (d === 1 ? '1 day' : d % 30 === 0 && d >= 30 ? (d === 30 ? '1 month' : `${d / 30} months`) : d % 7 === 0 ? (d === 7 ? '1 week' : `${d / 7} weeks`) : `${d} days`),
     tfRow: (label: string, rate: number, windows: string) => `${label}: ${rate}% of ${windows} windows`,
     thisTake: 'this take',
     median: 'median',

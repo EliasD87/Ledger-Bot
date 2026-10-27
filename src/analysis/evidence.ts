@@ -140,14 +140,15 @@ export class EvidenceBuilder {
   }
 
   private async load(symbols: string[], kinds: (AssetKind | undefined)[] = []): Promise<History[] | { error: string }> {
-    const out: History[] = [];
-    for (const [i, symbol] of symbols.entries()) {
-      const asset = await this.deps.history.identify(symbol, kinds[i]);
-      const history = asset && (await this.deps.history.daily(asset));
-      if (!history) return { error: `No price history found for ${symbol}.` };
-      out.push(history);
-    }
-    return out;
+    // Both assets of a pair load at the same time.
+    const loaded = await Promise.all(
+      symbols.map(async (symbol, i) => {
+        const asset = await this.deps.history.identify(symbol, kinds[i]);
+        return asset ? await this.deps.history.daily(asset) : null;
+      }),
+    );
+    const missing = loaded.findIndex((h) => !h);
+    return missing >= 0 ? { error: `No price history found for ${symbols[missing]}.` } : (loaded as History[]);
   }
 
   private assetFacts(facts: FactList, h: History): void {

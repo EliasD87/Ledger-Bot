@@ -38,7 +38,7 @@ const proposals = new Map<number, { spec: ThesisSpec; claim: string; at: number 
 const PROPOSAL_TTL = 30 * 60_000;
 
 const note = (text: string) => cards([card(ACCENT.amber, [text])]);
-const daysLabel = (d: number) => (d % 30 === 0 && d >= 30 ? (d === 30 ? '1 month' : `${d / 30} months`) : d % 7 === 0 ? (d === 7 ? '1 week' : `${d / 7} weeks`) : `${d} days`);
+const daysLabel = (d: number) => (d === 1 ? '1 day' : d % 30 === 0 && d >= 30 ? (d === 30 ? '1 month' : `${d / 30} months`) : d % 7 === 0 ? (d === 7 ? '1 week' : `${d / 7} weeks`) : `${d} days`);
 
 /**
  * Buttons on a stress test (Log it, Other timeframes, Make it sharper, Not now) and on a thesis (I'm with
@@ -159,7 +159,7 @@ export async function handleThesisButton(interaction: ButtonInteraction, deps: T
         return;
       }
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-      const table = await deps.take.evidence.timeframes(t.spec, [7, 30, 90, 180, t.spec.horizonDays]).catch(() => ({ error: "Couldn't read the history right now." }));
+      const table = await deps.take.evidence.timeframes(t.spec, [1, 7, 30, 90, 180, t.spec.horizonDays]).catch(() => ({ error: "Couldn't read the history right now." }));
       if ('error' in table) {
         await interaction.editReply(table.error);
         return;
