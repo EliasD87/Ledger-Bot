@@ -1,10 +1,11 @@
-import type { History, MarketHistory } from '../analysis/history.js';
+import type { Asset, History, MarketHistory } from '../analysis/history.js';
 import type { Desk } from '../desk/desk.js';
 import { log } from '../log.js';
 import type { ThesisSpec } from '../theses/spec.js';
 import type { Thesis } from '../theses/store.js';
 import { type Close, ratio } from '../analysis/stats.js';
-import { assetsChart, flowsChart, progressChart, thesisChart, type WindowSeries, windowChart, windowLabel } from './charts.js';
+import { assetsChart, flowsChart, lookbackFor, progressChart, progressLeadFor, thesisChart, type WindowSeries, windowChart, windowLabel } from './charts.js';
+import type { Point } from './draw.js';
 import { toPng } from './render.js';
 
 /** A chart ready to attach: the file name the card points at, and the PNG. */
@@ -29,10 +30,25 @@ export class Charts {
     },
   ) {}
 
-  /** The chart for a stress test: the measured year, or daily ETF flows for a flows take. */
+  /** The chart for a stress test: its recent past at the take's scale plus the runway, or daily ETF flows for a flows take. */
   async forThesis(spec: ThesisSpec, histories: History[]): Promise<ChartFile | null> {
     if (spec.kind === 'flows') return this.flows(spec.asset);
-    return this.draw('thesis', () => thesisChart(spec, histories));
+    const lookback = lookbackFor(spec.horizonDays);
+    const hourly = lookback < 30 ? await this.hourlySeries(histories.map((h) => h.asset), lookback) : null;
+    return this.draw('thesis', () => thesisChart(spec, histories, hourly ? { hourly } : {}));
+  }
+
+  /** Hourly values for one asset, or the ratio of two, over the last `days`; null if a source has none. */
+  private async hourlySeries(assets: Asset[], days: number): Promise<Point[] | null> {
+    const hourly = await Promise.all(assets.map((a) => this.deps.history.hourly(a, days).catch(() => null)));
+    if (!hourly.every(Boolean)) return null;
+    const [a, b] = hourly as NonNullable<(typeof hourly)[number]>[];
+    return b
+      ? a!.points.flatMap((p) => {
+          const q = b.points.find((x) => Math.abs(x.t - p.t) < 30 * 60_000);
+          return q ? [{ t: p.t, v: p.v / q.v }] : [];
+        })
+      : a!.points;
   }
 
   /** One asset with its averages, or two as a ratio. */
@@ -124,7 +140,10 @@ export class Charts {
       if (!h) return null;
       histories.push(h);
     }
-    return this.draw('progress', () => progressChart(t, histories, latest, now));
+    // Short takes are drawn from hourly prices, like their stress-test chart.
+    const span = (now - (t.startAt ?? now)) / 86_400_000 + progressLeadFor(t.spec.horizonDays);
+    const hourly = span < 30 ? await this.hourlySeries(histories.map((h) => h.asset), Math.ceil(span)) : null;
+    return this.draw('progress', () => progressChart(t, histories, latest, now, hourly ? { hourly } : {}));
   }
 
   async flows(asset: string): Promise<ChartFile | null> {

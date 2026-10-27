@@ -1,5 +1,5 @@
 import type { History } from '../analysis/history.js';
-import { type Close, ratio } from '../analysis/stats.js';
+import { type Close, ratio, stdev } from '../analysis/stats.js';
 import type { FlowReport } from '../desk/desk.js';
 import { formatUsd } from '../format.js';
 import { type ThesisSpec, claimText, measureLabel } from '../theses/spec.js';
@@ -41,20 +41,50 @@ export function measuredSeries(spec: ThesisSpec, histories: History[]): Close[] 
   return histories[0]?.closes ?? [];
 }
 
-/** The year behind a take, with its averages and the line it has to cross. */
-export function thesisChart(spec: ThesisSpec, histories: History[]): string {
-  const all = measuredSeries(spec, histories);
-  const closes = lastDays(all, 365);
-  const now = closes.at(-1)?.close ?? 0;
-  const format = axisFormat(now);
-  const sources = [...new Set(histories.map((h) => h.source))].join(', ');
+/** History shown before a take: about three times its horizon, at least a week, at most two years. */
+export function lookbackFor(horizonDays: number): number {
+  return Math.min(730, Math.max(7, Math.round(horizonDays * 3)));
+}
+
+/**
+ * The usual spread of outcomes `days` ahead (plus or minus one standard deviation, about two times in three),
+ * from the last 90 daily moves. Assets that skip weekends count trading days.
+ */
+export function typicalRange(daily: Close[], from: number, days: number, weekdaysOnly: boolean): { lo: number; hi: number } | null {
+  const recent = daily.slice(-91);
+  const moves = recent.slice(1).map((c, i) => Math.log(c.close / recent[i]!.close));
+  if (moves.length < 20 || days <= 0) return null;
+  const spread = stdev(moves) * Math.sqrt(Math.max(1, weekdaysOnly ? (days * 252) / 365 : days));
+  return { lo: from * Math.exp(-spread), hi: from * Math.exp(spread) };
+}
+
+/**
+ * A take as a picture: the recent past at a scale that fits the take (about three times its length,
+ * hourly for short ones), the runway to the check-back drawn to scale, the line it has to cross, and the
+ * typical range by then.
+ */
+export function thesisChart(spec: ThesisSpec, histories: History[], opts: { hourly?: Point[] } = {}): string {
+  const daily = measuredSeries(spec, histories);
+  const lookback = lookbackFor(spec.horizonDays);
+  const points = opts.hourly && opts.hourly.length >= 6 ? opts.hourly : lastDays(daily, lookback).map(at);
+  const last = points.at(-1) ?? { t: Date.now(), v: 0 };
+  const check = last.t + spec.horizonDays * DAY;
+  const format = axisFormat(last.v);
+  const label = spec.kind === 'relative' ? 'ratio' : 'price';
+  const range = typicalRange(daily, last.v, spec.horizonDays, histories.some((h) => h.asset.kind === 'stock'));
   return lineChart({
     title: claimText(spec),
-    subtitle: `${measureLabel(spec)} · last year · now ${format(now)}`,
-    lines: withAverages(all, closes.length, spec.kind === 'relative' ? 'ratio' : 'price'),
-    levels: needLevel(spec, now, format),
+    subtitle: `${measureLabel(spec)} · ${windowLabel(lookback)}, then the runway to ${shortDate(check)} · now ${format(last.v)}`,
+    lines:
+      !opts.hourly && lookback >= 150
+        ? withAverages(daily, points.length, label)
+        : [{ points, color: INK.main, width: 2.2, fill: true }],
+    levels: needLevel(spec, last.v, format),
+    marks: [{ t: check, label: `check-back ${shortDate(check)}` }],
+    ...(range ? { cone: { t0: last.t, v0: last.v, t1: check, ...range, label: `typical range by ${shortDate(check)}` } } : {}),
+    xEnd: check,
     format,
-    note: sources,
+    note: [...new Set(histories.map((h) => h.source))].join(', '),
   });
 }
 
@@ -128,32 +158,42 @@ export function assetsChart(histories: History[]): string {
   });
 }
 
+/** How far before the logging date a progress chart starts: about twice the horizon, a week to a year. */
+export function progressLeadFor(horizonDays: number): number {
+  return Math.min(365, Math.max(7, Math.round(horizonDays * 2)));
+}
+
 /**
- * A logged thesis so far: the run-up, the day it was logged, where it stands, and the runway left to the
- * check-back. `latest` is today's live value, if there is one.
+ * A logged thesis so far: the run-up, the day it was logged, where it stands, the line it has to cross,
+ * and the runway left to the check-back with the typical range by then. `latest` is today's live value.
  */
-export function progressChart(t: Thesis, histories: History[], latest: number | null, now: number): string {
+export function progressChart(t: Thesis, histories: History[], latest: number | null, now: number, opts: { hourly?: Point[] } = {}): string {
   const start = t.startAt ?? now;
-  const series = measuredSeries(t.spec, histories).filter((c) => at(c).t >= start - 60 * DAY);
-  const points = series.map(at);
-  if (latest !== null && points.length) points[points.length - 1] = { t: Math.min(now, Math.max(points.at(-1)!.t, now)), v: latest };
-  const value = points.at(-1)?.v ?? t.startValue ?? 0;
-  const format = axisFormat(value);
-  const marks: Mark[] = [{ t: start, label: 'logged' }];
+  const daily = measuredSeries(t.spec, histories);
+  const lead = progressLeadFor(t.spec.horizonDays);
+  const points =
+    opts.hourly && opts.hourly.length >= 6 ? [...opts.hourly] : daily.filter((c) => at(c).t >= start - lead * DAY).map(at);
+  if (latest !== null && points.length) points[points.length - 1] = { t: Math.max(points.at(-1)!.t, Math.min(now, t.checkAt ?? now)), v: latest };
+  const last = points.at(-1) ?? { t: now, v: t.startValue ?? 0 };
+  const format = axisFormat(last.v);
   const end = t.checkAt ?? now;
-  if (end > (points.at(-1)?.t ?? 0)) marks.push({ t: end, label: `check-back ${shortDate(end)}` });
+  const marks: Mark[] = [{ t: start, label: 'logged' }];
+  if (end > last.t) marks.push({ t: end, label: `check-back ${shortDate(end)}` });
   const levels = [
     ...(t.startValue !== null ? [{ v: t.startValue, label: `logged at ${format(t.startValue)}`, color: INK.sub }] : []),
-    ...needLevel(t.spec, t.startValue ?? value, format),
+    ...needLevel(t.spec, t.startValue ?? last.v, format),
   ];
+  const left = (end - last.t) / DAY;
+  const range = left >= 1 ? typicalRange(daily, last.v, left, histories.some((h) => h.asset.kind === 'stock')) : null;
   return lineChart({
     title: `#${t.id} ${t.claim}`,
-    subtitle: `${measureLabel(t.spec)} · now ${format(value)} · checks back ${shortDate(end)}`,
+    subtitle: `${measureLabel(t.spec)} · now ${format(last.v)} · checks back ${shortDate(end)}`,
     lines: [{ points, color: INK.main, width: 2.2, fill: true }],
     levels,
     marks,
+    ...(range ? { cone: { t0: last.t, v0: last.v, t1: end, ...range, label: `typical range by ${shortDate(end)}` } } : {}),
     format,
-    xEnd: Math.max(end, points.at(-1)?.t ?? end),
+    xEnd: Math.max(end, last.t),
     note: [...new Set(histories.map((h) => h.source))].join(', '),
   });
 }

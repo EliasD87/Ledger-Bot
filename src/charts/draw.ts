@@ -63,6 +63,8 @@ export interface LineChart {
   xEnd?: number;
   /** Numbered markers on the main line: the days an event map talks about. */
   dots?: { t: number; label: string }[];
+  /** The typical range ahead: a soft wedge from today's value to the low/high band at a future date. */
+  cone?: { t0: number; v0: number; t1: number; lo: number; hi: number; label: string };
 }
 
 /** A line chart: the measured series, its averages, a target and markers, with a label on the latest value. */
@@ -71,7 +73,7 @@ export function lineChart(c: LineChart): string {
   if (all.length < 2) return emptyChart(c.title, 'Not enough history to draw.');
   const t0 = Math.min(...all.map((p) => p.t));
   const t1 = Math.max(c.xEnd ?? 0, ...all.map((p) => p.t));
-  const values = [...all.map((p) => p.v), ...(c.levels ?? []).map((l) => l.v)];
+  const values = [...all.map((p) => p.v), ...(c.levels ?? []).map((l) => l.v), ...(c.cone ? [c.cone.lo, c.cone.hi] : [])];
   const [lo, hi] = niceRange(Math.min(...values), Math.max(...values));
   const x = (t: number) => PAD.left + ((t - t0) / Math.max(1, t1 - t0)) * (WIDTH - PAD.left - PAD.right);
   const y = (v: number) => PAD.top + (1 - (v - lo) / (hi - lo)) * (HEIGHT - PAD.top - PAD.bottom);
@@ -91,6 +93,19 @@ export function lineChart(c: LineChart): string {
     const fits = mx + 5 + textWidth(m.label, 11) < WIDTH - 8;
     parts.push(text(fits ? mx + 5 : mx - 5, PAD.top + 8, m.label, { size: 11, color: INK.sub, anchor: fits ? 'start' : 'end' }));
   }
+  let coneLabel = '';
+  if (c.cone) {
+    const k = c.cone;
+    const [x0, y0, x1, yHi, yLo] = [x(k.t0), y(k.v0), x(k.t1), y(k.hi), y(k.lo)];
+    parts.push(`<path d="M${f(x0)} ${f(y0)} L${f(x1)} ${f(yHi)} L${f(x1)} ${f(yLo)} Z" fill="${INK.main}" fill-opacity="0.10"/>`);
+    parts.push(`<path d="M${f(x0)} ${f(y0)} L${f(x1)} ${f(yHi)} M${f(x0)} ${f(y0)} L${f(x1)} ${f(yLo)}" stroke="${INK.main}" stroke-opacity="0.45" stroke-width="1" stroke-dasharray="3 4" fill="none"/>`);
+    const w = textWidth(k.label, 10) + 8;
+    if (x1 - w - 4 > x0) {
+      // Under the band if there's room, else above it; on a backing so dashed lines don't cut through.
+      const ty = yLo + 16 < HEIGHT - PAD.bottom ? yLo + 14 : yHi - 8;
+      coneLabel = `<rect x="${f(x1 - w - 4)}" y="${f(ty - 11)}" width="${f(w)}" height="15" rx="4" fill="${INK.panel}"/>` + text(x1 - 8, ty, k.label, { size: 10, color: INK.sub, anchor: 'end' });
+    }
+  }
   const labels: string[] = [];
   for (const l of c.levels ?? []) {
     parts.push(`<line x1="${PAD.left}" x2="${WIDTH - PAD.right}" y1="${f(y(l.v))}" y2="${f(y(l.v))}" stroke="${l.color}" stroke-width="1.5" stroke-dasharray="6 5"/>`);
@@ -109,6 +124,7 @@ export function lineChart(c: LineChart): string {
     );
   }
   parts.push(...labels);
+  if (coneLabel) parts.push(coneLabel);
   // Event markers sit on the main line at their day, numbered to match the reply.
   for (const d of c.dots ?? []) {
     const line = c.lines[0]!.points;

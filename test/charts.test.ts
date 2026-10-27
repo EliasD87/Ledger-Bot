@@ -1,7 +1,7 @@
 import { ComponentType, MessageFlags } from 'discord.js';
 import { describe, expect, it } from 'vitest';
 import type { History } from '../src/analysis/history.js';
-import { assetsChart, flowsChart, progressChart, thesisChart } from '../src/charts/charts.js';
+import { assetsChart, flowsChart, lookbackFor, progressChart, thesisChart, typicalRange } from '../src/charts/charts.js';
 import { niceRange, ticks } from '../src/charts/draw.js';
 import { toPng } from '../src/charts/render.js';
 import { thesisCard } from '../src/discord/thesisCards.js';
@@ -44,6 +44,21 @@ describe('charts', () => {
       expect(svg).not.toMatch(/NaN|undefined|Infinity/);
       expect(isPng(toPng(svg))).toBe(true);
     }
+  });
+
+  it("scales a take's chart to the take, with the runway and the typical range", () => {
+    expect([lookbackFor(1), lookbackFor(14), lookbackFor(60), lookbackFor(365)]).toEqual([7, 42, 180, 730]);
+    const twoWeeks = thesisChart({ kind: 'price', asset: 'BTC', direction: 'up', target: 90_000, horizonDays: 14 }, [btc]);
+    expect(twoWeeks).toContain('last 42 days, then the runway to');
+    expect(twoWeeks).toContain('typical range by');
+    expect(twoWeeks).toContain('check-back');
+    expect(twoWeeks).not.toContain('200-day'); // averages only on long windows
+    expect(thesisChart({ kind: 'price', asset: 'BTC', direction: 'up', target: 90_000, horizonDays: 180 }, [btc])).toContain('200-day');
+    const r = typicalRange(btc.closes, 100, 14, false)!;
+    expect(r.lo).toBeLessThan(100);
+    expect(r.hi).toBeGreaterThan(100);
+    expect(r.hi * r.lo).toBeCloseTo(100 * 100); // symmetric in log terms
+    expect(typicalRange(btc.closes.slice(0, 10), 100, 14, false)).toBeNull();
   });
 
   it('picks round axis steps', () => {

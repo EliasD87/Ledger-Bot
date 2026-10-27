@@ -73,7 +73,7 @@ Ledger reasons in a fixed order: what moved, what was reported then, what else m
 
 ## Charts
 
-Ledger draws its own charts (no AI involved, no extra API calls): the year behind a take with its 50/200-day averages and the line it has to cross, daily ETF flow bars, a progress chart for *How's it doing?* (logged level, where it stands, the runway to the check-back), the same at the check-back, and a price or ratio chart for analysis questions. Members can also just ask: "pull up the 7-day", "chart SOL vs ETH this month", "how has SPCX moved since it listed" (hourly prices for windows under a month). Names work as well as tickers (nvidia, spacex, ripple, ton → GRAM). Same quiet palette as the cards. If a chart can't be drawn, the card goes out without it.
+Ledger draws its own charts (no AI involved, no extra API calls). A take's chart is scaled to the take: about three times its length of recent history (hourly for short takes), then the runway to the check-back drawn to scale, the line it has to cross, and the typical range by the check-back date (one standard deviation of recent moves), so you can see whether the target sits inside normal movement. Also: daily ETF flow bars, a progress chart for *How's it doing?* (logged level, where it stands, the runway to the check-back), the same at the check-back, and a price or ratio chart for analysis questions. Members can also just ask: "pull up the 7-day", "chart SOL vs ETH this month", "how has SPCX moved since it listed" (hourly prices for windows under a month). Names work as well as tickers (nvidia, spacex, ripple, ton → GRAM). Same quiet palette as the cards. If a chart can't be drawn, the card goes out without it.
 
 ## Surfaces
 
