@@ -60,6 +60,14 @@ Assets: any crypto with a USDT market (Binance, with OKX and Bybit as backups) a
 
 Only a background fetcher talks to SoSoValue (20 requests a minute, 100k a month). It refreshes ETF flows, macro, the market board, headlines and a batch of stock quotes on schedules, about 1,200 requests a day. Results are stored in the database, so restarts don't refetch, and the fetcher slows down past 80% of the month and stops at 96%. Chat and cards never call SoSoValue. Price history comes from Binance and Yahoo, cached.
 
+## Before, during and after a take
+
+- **Other timeframes** (button on the stress test): how often the same move happened over 1 week, 1 month, 3 months and 6 months, computed from history. The author can switch the take to one of them; Ledger re-tests it on the same card.
+- **Make it sharper** (button): Ledger proposes a crisper version (an exact level or minimum move, a timeframe where the evidence is two-sided) with a one-line reason, checked for invented numbers. The author can test it instead.
+- **Mid-take moments:** between logging and the check-back, Ledger replies on the card when the target is reached early, when it's given back, or when the take moves against its author by more than its usual range for the whole window. Each at most once, pinging only the author.
+- **Duels:** someone who's against a logged take can make it a duel. One challenger per take; the check-back names the winner and pings both; duels and head-to-head results go on both records.
+- **Records:** aged well and badly, a form chart of recent takes (how far past or short of the line each finished), bold takes (history said under 25%) and how many aged well, the asset someone reads best, contrarian wins, duels.
+
 ## Context and events
 
 Every analysis and stress test also carries the wider picture, computed from data:

@@ -354,6 +354,17 @@ export function verdictChart(t: Thesis, histories: History[], endValue: number, 
   });
 }
 
+/** A member's recent form: one bar per checked take, how far past (up) or short of (down) its line it finished. */
+export function formChart(name: string, form: { at: number; ok: boolean; margin: number }[]): string {
+  const right = form.filter((f) => f.ok).length;
+  return barChart({
+    title: `${name}'s last ${form.length} takes`,
+    subtitle: `${right} aged well, ${form.length - right} aged badly · how far past or short of the line`,
+    bars: form.map((f) => ({ t: f.at, v: f.margin * 100 })),
+    format: (v) => (v === 0 ? '0' : `${v > 0 ? '+' : '−'}${Math.abs(v).toFixed(1)}%`),
+  });
+}
+
 /** Daily ETF flows: the last 30 sessions as bars around zero. */
 export function flowsChart(r: FlowReport): string {
   const days = [...r.days].filter((d) => d.totalNetInflow !== null).slice(0, 30).reverse();

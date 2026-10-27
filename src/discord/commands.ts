@@ -214,11 +214,18 @@ async function take(interaction: ChatInputCommandInteraction<'cached'>, deps: Co
 }
 
 /** /takes: a member's record, or the server's open debates and best records. */
-async function takes(interaction: ChatInputCommandInteraction<'cached'>, { theses, members }: CommandDeps): Promise<void> {
+async function takes(interaction: ChatInputCommandInteraction<'cached'>, { theses, members, charts }: CommandDeps): Promise<void> {
   const member = interaction.options.getMember('member');
   if (member) {
     members.remember(member.id, member.displayName);
-    await interaction.reply(cards([recordContainer(member.displayName, theses.record(interaction.guildId, member.id))]));
+    const record = theses.record(interaction.guildId, member.id);
+    await interaction.deferReply();
+    // Their recent form as a chart, when there are a couple of checked takes to draw.
+    const chart = await charts?.form(member.displayName, record.form).catch(() => null);
+    await replyWithCards(interaction, {
+      ...cards([recordContainer(member.displayName, record, { chart: !!chart })]),
+      files: chart ? [{ attachment: chart.data, name: chart.name }] : [],
+    });
     return;
   }
   const open = theses.open(interaction.guildId).map((t) => ({ t, sides: theses.sides(t.id) }));

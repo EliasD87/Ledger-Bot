@@ -100,7 +100,7 @@ await post(
       open: [{ thesis: open, value: draft.spec.kind === 'flows' ? start + 1e8 : start * 1.03, holding: true }],
       results: [agedWell],
       sided: [],
-      record: { logged: 4, agedWell: 2, agedBadly: 1, open: 1, contrarianWins: 1, sidesRight: 3, sidesSettled: 4, best: agedWell },
+      record: { logged: 4, agedWell: 2, agedBadly: 1, open: 1, contrarianWins: 1, sidesRight: 3, sidesSettled: 4, bold: { right: 2, total: 3 }, bestAsset: { asset: 'WTI', right: 4, total: 5 }, duels: { won: 3, lost: 1, against: [{ userId: '222', won: 2, lost: 0 }] }, form: [], best: agedWell },
       watching: {
         active: [{ id: 7, guildId: '', channelId, userId: owner, kind: 'price', asset: 'BTC', direction: 'below', target: 80_000, refPrice: null, repeat: false, status: 'active', createdAt: NOW, firedAt: null }],
         fired: [],
@@ -110,7 +110,7 @@ await post(
     true,
   ),
 );
-await post('record', cards([recordContainer('Elias', { logged: 4, agedWell: 2, agedBadly: 1, open: 1, contrarianWins: 1, sidesRight: 3, sidesSettled: 4, best: agedWell })]));
+await post('record', cards([recordContainer('Elias', { logged: 4, agedWell: 2, agedBadly: 1, open: 1, contrarianWins: 1, sidesRight: 3, sidesSettled: 4, bold: { right: 2, total: 3 }, bestAsset: { asset: 'WTI', right: 4, total: 5 }, duels: { won: 3, lost: 1, against: [{ userId: '222', won: 2, lost: 0 }] }, form: [], best: agedWell })]));
 await post('open debates', cards([boardContainer([{ t: open, sides }], [{ userId: owner, agedWell: 2, settled: 3 }])]));
 await post(
   'watch DM',

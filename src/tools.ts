@@ -148,7 +148,7 @@ const TAKE_TOOLS: Tool[] = [
     type: 'function',
     function: {
       name: 'list_debates',
-      description: "The server's open theses (the live debates), with sides, and the best records. Use for \"what's being argued?\", \"who's got the best record?\".",
+      description: "The server's open theses (the live debates), with sides and duels, and the best records. Use for \"what's being argued?\", \"who's got the best record?\".",
       parameters: { type: 'object', properties: {}, additionalProperties: false },
     },
   },
@@ -550,6 +550,11 @@ export class ToolKit {
           contrarian_wins: r.contrarianWins,
           sides_read_right: `${r.sidesRight} of ${r.sidesSettled}`,
           best_take: r.best ? `#${r.best.id} ${r.best.claim}` : null,
+          bold_takes_aged_well: `${r.bold.right} of ${r.bold.total} (takes history said were under 25% likely)`,
+          reads_best: r.bestAsset ? `${r.bestAsset.asset}: ${r.bestAsset.right} of ${r.bestAsset.total}` : null,
+          duels: `${r.duels.won}-${r.duels.lost}`,
+          head_to_head: r.duels.against.slice(0, 3).map((d) => `vs ${members.nameOf(d.userId)}: ${d.won}-${d.lost}`),
+          recent_form: r.form.slice(-8).map((f) => (f.ok ? 'aged well' : 'aged badly')),
           open_theses: theses.byAuthor(ctx.guildId, userId).filter((t) => t.status === 'open').slice(0, 5).map((t) => thesisForModel(t, members)),
         };
       },
@@ -558,7 +563,7 @@ export class ToolKit {
         return {
           open: open.slice(0, 10).map((t) => {
             const s = theses.sides(t.id);
-            return { ...thesisForModel(t, members), with: s.with.length, against: s.against.length };
+            return { ...thesisForModel(t, members), with: s.with.length, against: s.against.length, ...(t.challengerId ? { duel: `${members.nameOf(t.authorId)} vs ${members.nameOf(t.challengerId)}` } : {}) };
           }),
           total_open: open.length,
           best_records: theses.leaders(ctx.guildId, 0).map((l) => `${members.nameOf(l.userId)}: ${l.agedWell} of ${l.settled} aged well`),

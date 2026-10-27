@@ -117,6 +117,28 @@ export class EvidenceBuilder {
     return { facts: facts.all, start, measure: measureLabel(spec), baseRate: rate, analogs: similar, sources: sourcesOf(histories, facts), histories };
   }
 
+  /**
+   * How often what a take needs has happened over other timeframes: the same level or move over
+   * `horizons` days. In code, from history; nothing to do with the model.
+   */
+  async timeframes(spec: ThesisSpec, horizons: number[]): Promise<{ days: number; rate: number; windows: number; median: number }[] | { error: string }> {
+    if (spec.kind === 'flows') return { error: 'Timeframes are for price takes; ETF flows have no long history to compare.' };
+    const histories = await this.load(spec.kind === 'relative' ? [spec.asset, spec.versus!] : [spec.asset], [spec.assetKind, spec.versusKind]);
+    if ('error' in histories) return histories;
+    const series = spec.kind === 'relative' ? ratio(histories[0]!.closes, histories[1]!.closes) : histories[0]!.closes;
+    const start = series.at(-1)?.close;
+    if (!start) return { error: 'No recent price to measure from.' };
+    const stock = histories.some((x) => x.asset.kind === 'stock');
+    const up = spec.direction === 'up';
+    const need = neededChange(spec, start) ?? 0;
+    const out = [];
+    for (const days of [...new Set(horizons)].sort((x, y) => x - y)) {
+      const r = baseRate(series, bars(days, stock), (c) => (up ? (need > 0 ? c >= need : c > need) : need < 0 ? c <= need : c < need));
+      if (r) out.push({ days, rate: r.rate, windows: r.windows, median: r.median });
+    }
+    return out.length ? out : { error: 'Not enough history to compare timeframes.' };
+  }
+
   private async load(symbols: string[], kinds: (AssetKind | undefined)[] = []): Promise<History[] | { error: string }> {
     const out: History[] = [];
     for (const [i, symbol] of symbols.entries()) {

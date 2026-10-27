@@ -261,4 +261,15 @@ export const migrations: string[] = [
     PRIMARY KEY (thesis_id, user_id)
   );
   `,
+  // 8: duels (a member who's against a thesis can take it on head to head; one challenger per thesis),
+  // and mid-take moments (target reached early, given back, under pressure), each posted once.
+  `
+  ALTER TABLE theses ADD COLUMN challenger_id TEXT;
+  CREATE TABLE thesis_moments (
+    thesis_id INTEGER NOT NULL REFERENCES theses (id),
+    kind      TEXT NOT NULL,
+    at        INTEGER NOT NULL,
+    PRIMARY KEY (thesis_id, kind)
+  );
+  `,
 ];

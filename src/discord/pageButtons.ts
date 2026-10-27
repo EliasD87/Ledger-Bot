@@ -1,3 +1,4 @@
+import type { Charts } from '../charts/maker.js';
 import { type ButtonInteraction, type ChannelSelectMenuInteraction, type ChatInputCommandInteraction, MessageFlags } from 'discord.js';
 import type { Config } from '../config.js';
 import type { ChatModel } from '../llm/deepseek.js';
@@ -11,7 +12,7 @@ import type { ServerMemory } from './memory.js';
 import type { Members } from '../members.js';
 import { howItWorks, myPageMessage, parsePageButtonId } from './pageCards.js';
 import { recordContainer } from './thesisCards.js';
-import { privateCards, replyWithCards } from './ui.js';
+import { cards, privateCards, replyWithCards } from './ui.js';
 import { postableReply } from './text.js';
 
 export interface PageInteractionDeps extends PageDeps {
@@ -21,6 +22,7 @@ export interface PageInteractionDeps extends PageDeps {
   spend: Spend;
   config: Config;
   metrics: Metrics;
+  charts?: Charts;
 }
 
 type Opener = ButtonInteraction | ChatInputCommandInteraction;
@@ -57,7 +59,14 @@ export async function handlePageInteraction(interaction: ButtonInteraction | Cha
 
   if (parsed.action === 'record') {
     const name = interaction.member && 'displayName' in interaction.member ? interaction.member.displayName : interaction.user.displayName;
-    await interaction.reply(privateCards([recordContainer(name, deps.theses.record(guildId, interaction.user.id))]));
+    const record = deps.theses.record(guildId, interaction.user.id);
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    const chart = await deps.charts?.form(name, record.form).catch(() => null);
+    await replyWithCards(
+      interaction,
+      { ...cards([recordContainer(name, record, { chart: !!chart })]), files: chart ? [{ attachment: chart.data, name: chart.name }] : [] },
+      { ephemeral: true },
+    );
     return;
   }
 

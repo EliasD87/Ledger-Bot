@@ -1,3 +1,4 @@
+import { MomentWatcher } from './theses/moments.js';
 import { MarketContext } from './analysis/context.js';
 import { WebNews } from './news/webNews.js';
 import { createHash } from 'node:crypto';
@@ -19,7 +20,7 @@ import { createClient, inviteLink } from './discord/client.js';
 import { commandData, handleInteraction } from './discord/commands.js';
 import { Conversation } from './discord/conversation.js';
 import { ServerMemory } from './discord/memory.js';
-import { announceVerdicts, expireDrafts } from './discord/thesisButtons.js';
+import { announceMoments, announceVerdicts, expireDrafts } from './discord/thesisButtons.js';
 import { DeepSeek } from './llm/deepseek.js';
 import { RateLimiter, Spend } from './llm/guards.js';
 import { log, setLogLevel } from './log.js';
@@ -67,6 +68,7 @@ const charts = new Charts({ history, desk, renderer });
 const theses = new ThesisStore(db);
 const measure = new Measure({ history, crypto, stocks, desk });
 const settler = new ThesisSettler({ store: theses, measure });
+const moments = new MomentWatcher({ store: theses, measure, history });
 const take: TakeDeps = { llm, evidence, theses, spend, charts };
 
 const conversation = new Conversation({
@@ -184,6 +186,8 @@ async function tick(): Promise<void> {
   for (const v of settled) log.info(`Thesis #${v.thesis.id} checked back: ${v.held ? 'aged well' : 'aged badly'}`);
   for (const t of voided) log.warn(`Thesis #${t.id} voided: no data at the check-back`);
   await announceVerdicts(client, theses, settled, charts);
+  // Between logging and check-back: target reached, given back, under pressure (checked every 10 minutes).
+  await announceMoments(client, await moments.tick().catch((err) => (log.warn('Moment check failed', err), [])));
   await expireDrafts(client, theses, Date.now());
   await alertWatcher?.tick();
   void refreshTape().catch((err) => log.warn('Tape refresh failed', err));

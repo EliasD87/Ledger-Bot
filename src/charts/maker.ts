@@ -13,6 +13,7 @@ import {
   assetsChart,
   dailyPairs,
   flowsChart,
+  formChart,
   lookbackFor,
   progressChart,
   progressLeadFor,
@@ -173,6 +174,12 @@ export class Charts {
     const span = (this.now - (t.startAt ?? this.now)) / DAY + progressLeadFor(t.spec.horizonDays);
     const extras = await this.extras(histories, Math.ceil(span), t.spec.kind === 'relative');
     return this.draw('verdict', () => verdictChart(t, histories, endValue, held, extras));
+  }
+
+  /** A member's recent form, for their record card; needs at least two checked takes. */
+  async form(name: string, form: { at: number; ok: boolean; margin: number }[]): Promise<ChartFile | null> {
+    if (form.length < 2) return null;
+    return this.draw('form', () => formChart(name, form));
   }
 
   async flows(asset: string): Promise<ChartFile | null> {

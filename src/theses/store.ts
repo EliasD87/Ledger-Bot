@@ -13,6 +13,8 @@ export interface Analysis {
   argument: Argument;
   facts: Fact[];
   sources: string[];
+  /** How often what the take needs has happened, when it was stress-tested (a fraction); bold below 25%. */
+  baseRate?: number | null;
 }
 
 export interface Thesis {
@@ -33,6 +35,8 @@ export interface Thesis {
   settledAt: number | null;
   note: string | null;
   createdAt: number;
+  /** The member who took it on head to head, if anyone. */
+  challengerId: string | null;
 }
 
 export interface Sides {
@@ -52,13 +56,27 @@ export interface Record {
   sidesSettled: number;
   /** The settled thesis that aged best, by margin. */
   best: Thesis | null;
+  /** Takes that history said were unlikely (base rate under 25%) when they were tested, and how many aged well. */
+  bold: { right: number; total: number };
+  /** The asset this member reads best (2+ checked takes on it). */
+  bestAsset: { asset: string; right: number; total: number } | null;
+  /** Duels (as author or challenger) and how they went, with the head-to-head against each opponent. */
+  duels: { won: number; lost: number; against: { userId: string; won: number; lost: number }[] };
+  /** The last checked takes, oldest first: how far past or short of the line each finished. */
+  form: { at: number; ok: boolean; margin: number; claim: string }[];
 }
+
+/** A take history said was unlikely when it was tested. */
+export const BOLD_BELOW = 0.25;
+
+export type MomentKind = 'reached' | 'slipped' | 'pressure';
 
 /** The thesis columns, optionally prefixed with a table alias. */
 const columns = (t = '') =>
   `${t}id AS id, ${t}guild_id AS guildId, ${t}channel_id AS channelId, ${t}message_id AS messageId, ${t}author_id AS authorId, ` +
   `${t}take AS take, ${t}claim AS claim, ${t}spec AS spec, ${t}analysis AS analysis, ${t}status AS status, ${t}start_value AS startValue, ` +
-  `${t}start_at AS startAt, ${t}check_at AS checkAt, ${t}end_value AS endValue, ${t}settled_at AS settledAt, ${t}note AS note, ${t}created_at AS createdAt`;
+  `${t}start_at AS startAt, ${t}check_at AS checkAt, ${t}end_value AS endValue, ${t}settled_at AS settledAt, ${t}note AS note, ${t}created_at AS createdAt, ` +
+  `${t}challenger_id AS challengerId`;
 const COLUMNS = columns();
 
 function parse(row: unknown): Thesis | undefined {
@@ -83,6 +101,15 @@ export class ThesisStore {
 
   get(id: number): Thesis | undefined {
     return parse(this.db.prepare(`SELECT ${COLUMNS} FROM theses WHERE id = ?`).get(id));
+  }
+
+  /** Replaces a draft's test (a new timeframe, a sharper version). False once it's logged or gone. */
+  redraft(id: number, d: { claim: string; spec: ThesisSpec; analysis: Analysis }): boolean {
+    return (
+      this.db
+        .prepare("UPDATE theses SET claim = ?, spec = ?, analysis = ? WHERE id = ? AND status = 'draft'")
+        .run(d.claim, JSON.stringify(d.spec), JSON.stringify(d.analysis), id).changes > 0
+    );
   }
 
   attachMessage(id: number, channelId: string, messageId: string): void {
@@ -123,6 +150,36 @@ export class ThesisStore {
 
   staleDrafts(before: number): Thesis[] {
     return this.db.prepare(`SELECT ${COLUMNS} FROM theses WHERE status = 'draft' AND created_at < ?`).all(before).map((r) => parse(r)!);
+  }
+
+  /** Every open thesis, on every server: for the mid-take watcher. */
+  allOpen(): Thesis[] {
+    return this.db.prepare(`SELECT ${COLUMNS} FROM theses WHERE status = 'open' ORDER BY id`).all().map((r) => parse(r)!);
+  }
+
+  /** Records a mid-take moment; false if it was already posted. */
+  markMoment(thesisId: number, kind: MomentKind, now: number): boolean {
+    return this.db.prepare('INSERT OR IGNORE INTO thesis_moments (thesis_id, kind, at) VALUES (?, ?, ?)').run(thesisId, kind, now).changes > 0;
+  }
+
+  hasMoment(thesisId: number, kind: MomentKind): boolean {
+    return this.db.prepare('SELECT 1 FROM thesis_moments WHERE thesis_id = ? AND kind = ?').get(thesisId, kind) !== undefined;
+  }
+
+  /**
+   * Takes a thesis on head to head: the challenger is against it and the check-back settles the duel.
+   * One challenger per thesis, never the author, only while it's open.
+   */
+  challenge(thesisId: number, userId: string, now: number): 'ok' | 'own' | 'taken' | 'closed' | 'already' {
+    const t = this.get(thesisId);
+    if (!t || t.status !== 'open') return 'closed';
+    if (t.authorId === userId) return 'own';
+    if (t.challengerId === userId) return 'already';
+    if (t.challengerId) return 'taken';
+    const done = this.db.prepare('UPDATE theses SET challenger_id = ? WHERE id = ? AND challenger_id IS NULL').run(userId, thesisId).changes > 0;
+    if (!done) return 'taken';
+    this.side(thesisId, userId, 'against', now);
+    return 'ok';
   }
 
   open(guildId: string): Thesis[] {
@@ -192,6 +249,20 @@ export class ThesisStore {
       settled
         .filter((t) => t.status === 'aged_well')
         .sort((a, b) => margin(b) - margin(a))[0] ?? null;
+    const bold = settled.filter((t) => typeof t.analysis.baseRate === 'number' && t.analysis.baseRate < BOLD_BELOW);
+    const byAsset = new Map<string, { right: number; total: number }>();
+    for (const t of settled) {
+      const key = t.spec.kind === 'relative' ? `${t.spec.asset} vs ${t.spec.versus}` : t.spec.asset;
+      const a = byAsset.get(key) ?? { right: 0, total: 0 };
+      a.total++;
+      if (t.status === 'aged_well') a.right++;
+      byAsset.set(key, a);
+    }
+    const bestAsset =
+      [...byAsset]
+        .filter(([, a]) => a.total >= 2 && a.right > 0)
+        .sort(([, x], [, y]) => y.right / y.total - x.right / x.total || y.total - x.total)
+        .map(([asset, a]) => ({ asset, ...a }))[0] ?? null;
     return {
       logged: own.length,
       agedWell: settled.filter((t) => t.status === 'aged_well').length,
@@ -201,6 +272,43 @@ export class ThesisStore {
       sidesRight: sided.filter((s) => (s.side === 'with') === (s.status === 'aged_well')).length,
       sidesSettled: sided.length,
       best,
+      bold: { right: bold.filter((t) => t.status === 'aged_well').length, total: bold.length },
+      bestAsset,
+      duels: this.duels(guildId, userId, since),
+      form: settled
+        .filter((t) => t.spec.kind !== 'flows' && t.settledAt !== null)
+        .sort((a, b) => a.settledAt! - b.settledAt!)
+        .slice(-20)
+        .map((t) => ({ at: t.settledAt!, ok: t.status === 'aged_well', margin: signedMargin(t), claim: t.claim })),
+    };
+  }
+
+  /** A member's duels: as the author (won if it aged well) or the challenger (won if it aged badly). */
+  duels(guildId: string, userId: string, since = 0): Record['duels'] {
+    const rows = this.db
+      .prepare(
+        `SELECT author_id AS authorId, challenger_id AS challengerId, status FROM theses
+         WHERE guild_id = ? AND challenger_id IS NOT NULL AND (author_id = ? OR challenger_id = ?)
+         AND status IN ('aged_well', 'aged_badly') AND settled_at >= ?`,
+      )
+      .all(guildId, userId, userId, since) as { authorId: string; challengerId: string; status: ThesisStatus }[];
+    const vs = new Map<string, { won: number; lost: number }>();
+    let won = 0;
+    for (const r of rows) {
+      const asAuthor = r.authorId === userId;
+      const win = asAuthor === (r.status === 'aged_well');
+      const opponent = asAuthor ? r.challengerId : r.authorId;
+      const h = vs.get(opponent) ?? { won: 0, lost: 0 };
+      if (win) {
+        h.won++;
+        won++;
+      } else h.lost++;
+      vs.set(opponent, h);
+    }
+    return {
+      won,
+      lost: rows.length - won,
+      against: [...vs].map(([opponent, h]) => ({ userId: opponent, ...h })).sort((a, b) => b.won + b.lost - (a.won + a.lost)),
     };
   }
 
@@ -214,6 +322,11 @@ export class ThesisStore {
       )
       .all(guildId, since, min) as { userId: string; agedWell: number; settled: number }[];
   }
+}
+
+/** The margin with a sign: positive past the line (aged well), negative short of it. */
+export function signedMargin(t: Thesis): number {
+  return (t.status === 'aged_well' ? 1 : -1) * margin(t);
 }
 
 /** How far past the line a settled thesis finished, for picking someone's best take. */

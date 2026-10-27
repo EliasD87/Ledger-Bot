@@ -49,8 +49,14 @@ export async function stressTest(deps: Deps, take: string, author: string): Prom
   const now = (deps.now ?? Date.now)();
   const parsed = await understand(deps, take, now);
   if (!parsed.ok) return parsed;
-  const { assumptions } = parsed;
+  return stressTestSpec(deps, take, author, parsed.spec, parsed.assumptions);
+}
 
+/** Steps 2 to 4 for a claim that's already known: gather, argue, verify. */
+export async function stressTestSpec(deps: Deps, take: string, author: string, given: ThesisSpec, assumptions: string[]): Promise<StressResult> {
+  const problem = specProblem(given);
+  if (problem) return { ok: false, reason: 'needs-detail', message: problem };
+  const parsed = { spec: given };
   const evidence = await deps.evidence.forThesis(parsed.spec);
   if ('error' in evidence) return { ok: false, reason: 'no-data', message: evidence.error };
   const [first, second] = evidence.histories;
