@@ -23,7 +23,7 @@ import {
   windowChart,
   windowLabel,
 } from './charts.js';
-import type { Point } from './draw.js';
+import { type Point, type RankChart, rankChart } from './draw.js';
 import { toPng } from './render.js';
 
 /** A chart ready to attach: the file name the card points at, and the PNG. */
@@ -183,6 +183,11 @@ export class Charts {
   async form(name: string, form: { at: number; ok: boolean; margin: number }[]): Promise<ChartFile | null> {
     if (form.length < 2) return null;
     return this.draw('form', () => formChart(name, form));
+  }
+
+  /** A leaderboard image: members ranked, best first. */
+  async board(board: RankChart): Promise<ChartFile | null> {
+    return this.draw('board', () => rankChart(board));
   }
 
   async flows(asset: string): Promise<ChartFile | null> {

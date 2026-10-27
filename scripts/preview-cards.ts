@@ -111,7 +111,7 @@ await post(
   ),
 );
 await post('record', cards([recordContainer('Elias', { logged: 4, agedWell: 2, agedBadly: 1, open: 1, contrarianWins: 1, sidesRight: 3, sidesSettled: 4, bold: { right: 2, total: 3 }, bestAsset: { asset: 'WTI', right: 4, total: 5 }, duels: { won: 3, lost: 1, against: [{ userId: '222', won: 2, lost: 0 }] }, form: [], best: agedWell })]));
-await post('open debates', cards([boardContainer([{ t: open, sides }], [{ userId: owner, agedWell: 2, settled: 3 }])]));
+await post('open debates', cards([boardContainer([{ t: open, sides }], [{ userId: owner, right: 5, total: 7, takesRight: 2, takes: 3, sidesRight: 3, sides: 4 }])]));
 await post(
   'watch DM',
   cards([

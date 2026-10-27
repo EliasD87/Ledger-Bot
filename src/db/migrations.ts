@@ -272,4 +272,33 @@ export const migrations: string[] = [
     PRIMARY KEY (thesis_id, kind)
   );
   `,
+  // 9: the question of the day. One statement about today's close, voted With or Against before a
+  // deadline, scored on accuracy (hard calls count more), for the leaderboard.
+  `
+  CREATE TABLE day_questions (
+    id          INTEGER PRIMARY KEY,
+    guild_id    TEXT NOT NULL,
+    channel_id  TEXT NOT NULL,
+    message_id  TEXT,
+    day         TEXT NOT NULL,            -- the UTC day it asks about, YYYY-MM-DD
+    rule        TEXT NOT NULL,            -- JSON: what is asked and how it settles
+    ledger      INTEGER NOT NULL,         -- Ledger's own vote: 1 with, 0 against
+    opens_at    INTEGER NOT NULL,
+    closes_at   INTEGER NOT NULL,         -- votes lock
+    status      TEXT NOT NULL CHECK (status IN ('open', 'closed', 'settled', 'void')),
+    outcome     INTEGER,                  -- 1: With was right, 0: Against was right
+    settled_at  INTEGER,
+    created_at  INTEGER NOT NULL,
+    UNIQUE (guild_id, day)
+  );
+  CREATE INDEX day_questions_status ON day_questions (status, closes_at);
+  CREATE TABLE day_votes (
+    question_id INTEGER NOT NULL REFERENCES day_questions (id),
+    user_id     TEXT NOT NULL,
+    value       INTEGER NOT NULL,         -- 1 with, 0 against
+    score       INTEGER,
+    created_at  INTEGER NOT NULL,
+    PRIMARY KEY (question_id, user_id)
+  );
+  `,
 ];

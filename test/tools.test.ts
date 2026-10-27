@@ -178,7 +178,13 @@ describe('ToolKit', () => {
 
     theses.settle(id, 0.045, true, NOW + 9 * 86_400_000);
     expect(await run(session, 'get_takes', { member: 'bob' })).toMatchObject({ sides_read_right: '0 of 1' });
-    expect(await run(session, 'list_debates', {})).toMatchObject({ total_open: 0, best_records: ['Alice: 1 of 1 aged well'] });
+    expect(await run(session, 'list_debates', {})).toMatchObject({
+      total_open: 0,
+      leaderboard: [
+        '1. Alice: 1 right calls (1 of 1 own takes aged well, 0 of 0 sides read right)',
+        '2. Bob: 0 right calls (0 of 0 own takes aged well, 0 of 1 sides read right)',
+      ],
+    });
   });
 
   it('reports bad arguments and unknown tools as results instead of throwing', async () => {

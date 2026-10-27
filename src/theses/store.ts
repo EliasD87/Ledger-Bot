@@ -69,6 +69,17 @@ export interface Record {
   form: { at: number; ok: boolean; margin: number; claim: string }[];
 }
 
+/** A row of the leaderboard: right calls from own takes and from sides taken. */
+export interface Leader {
+  userId: string;
+  right: number;
+  total: number;
+  takesRight: number;
+  takes: number;
+  sidesRight: number;
+  sides: number;
+}
+
 /** A take history said was unlikely when it was tested. */
 export const BOLD_BELOW = 0.25;
 
@@ -316,14 +327,34 @@ export class ThesisStore {
   }
 
   /** Members with at least `min` settled theses, best record first. */
-  leaders(guildId: string, since: number, min = 1): { userId: string; agedWell: number; settled: number }[] {
+  /**
+   * The leaderboard: who reads the market right, counting their own takes that aged well and the sides they
+   * took on others' takes (with on one that aged well, against on one that aged badly). Most right calls
+   * first, then the better hit rate. Ledger's own leans don't count. `limit` -1 means everyone.
+   */
+  leaders(guildId: string, since: number, limit = 10): Leader[] {
     return this.db
       .prepare(
-        `SELECT author_id AS userId, SUM(status = 'aged_well') AS agedWell, COUNT(*) AS settled FROM theses
-         WHERE guild_id = ? AND status IN ('aged_well', 'aged_badly') AND settled_at >= ?
-         GROUP BY author_id HAVING COUNT(*) >= ? ORDER BY agedWell DESC, CAST(SUM(status = 'aged_well') AS REAL) / COUNT(*) DESC, settled DESC LIMIT 10`,
+        `WITH calls AS (
+           SELECT author_id AS userId, status = 'aged_well' AS ok, 1 AS own FROM theses
+           WHERE guild_id = ? AND status IN ('aged_well', 'aged_badly') AND settled_at >= ?
+           UNION ALL
+           SELECT s.user_id, (s.side = 'with') = (t.status = 'aged_well'), 0 FROM thesis_sides s JOIN theses t ON t.id = s.thesis_id
+           WHERE t.guild_id = ? AND t.status IN ('aged_well', 'aged_badly') AND t.settled_at >= ? AND s.user_id <> t.author_id
+         )
+         SELECT userId, SUM(ok) AS "right", COUNT(*) AS total, SUM(own AND ok) AS takesRight, SUM(own) AS takes,
+                SUM(NOT own AND ok) AS sidesRight, SUM(NOT own) AS sides
+         FROM calls GROUP BY userId
+         ORDER BY "right" DESC, CAST(SUM(ok) AS REAL) / COUNT(*) DESC, total ASC, userId LIMIT ?`,
       )
-      .all(guildId, since, min) as { userId: string; agedWell: number; settled: number }[];
+      .all(guildId, since, guildId, since, limit) as unknown as Leader[];
+  }
+
+  /** A member's exact place on the leaderboard, or null if they have no checked take or side yet. */
+  rankOf(guildId: string, userId: string, since = 0): { rank: number; of: number; leader: Leader } | null {
+    const all = this.leaders(guildId, since, -1);
+    const i = all.findIndex((l) => l.userId === userId);
+    return i < 0 ? null : { rank: i + 1, of: all.length, leader: all[i]! };
   }
 }
 

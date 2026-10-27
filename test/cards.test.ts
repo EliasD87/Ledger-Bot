@@ -97,7 +97,7 @@ describe('cards fit Discord and read like a record', () => {
     checkLimits(myPageMessage({ ...page, firstVisit: true, open: [], results: [], sided: [], record: empty, watching: { active: [], fired: [] } }, 'g', false));
     checkLimits(cards([recordContainer('Elias', page.record)]));
     checkLimits(cards([recordContainer('Elias', empty)]));
-    checkLimits(cards([boardContainer(Array.from({ length: 30 }, (_, i) => ({ t: { ...open, id: i }, sides: crowd })), Array.from({ length: 10 }, (_, i) => ({ userId: `${i}`, agedWell: 5, settled: 8 })))]));
+    checkLimits(cards([boardContainer(Array.from({ length: 30 }, (_, i) => ({ t: { ...open, id: i }, sides: crowd })), Array.from({ length: 10 }, (_, i) => ({ userId: `${i}`, right: 9, total: 14, takesRight: 5, takes: 8, sidesRight: 4, sides: 6 })))]));
     checkLimits(cards([boardContainer([], [])]));
     expect(checkLimits(howItWorks()).text).not.toMatch(BETTING);
   });

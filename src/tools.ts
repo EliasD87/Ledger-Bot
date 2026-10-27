@@ -149,7 +149,7 @@ const TAKE_TOOLS: Tool[] = [
     type: 'function',
     function: {
       name: 'list_debates',
-      description: "The server's open theses (the live debates), with sides and duels, and the best records. Use for \"what's being argued?\", \"who's got the best record?\".",
+      description: "The server's open theses (the live debates), with sides and duels, and the leaderboard (right calls from own takes and sides). Use for \"what's being argued?\", \"who's top?\", \"who's got the best record?\".",
       parameters: { type: 'object', properties: {}, additionalProperties: false },
     },
   },
@@ -546,8 +546,12 @@ export class ToolKit {
         const userId = !who || /^(me|myself|i)$/i.test(who) ? ctx.userId : members.find(who);
         if (!userId) return { error: `Nobody called "${who}" has a take on the record yet.` };
         const r = theses.record(ctx.guildId, userId);
+        const place = theses.rankOf(ctx.guildId, userId);
         return {
           member: members.nameOf(userId),
+          leaderboard_rank: place
+            ? `${place.rank} of ${place.of} (${place.leader.right} right calls: ${place.leader.takesRight} of ${place.leader.takes} own takes, ${place.leader.sidesRight} of ${place.leader.sides} sides)`
+            : 'not on the leaderboard yet: no checked take or side',
           aged_well: r.agedWell,
           aged_badly: r.agedBadly,
           open: r.open,
@@ -570,7 +574,9 @@ export class ToolKit {
             return { ...thesisForModel(t, members), with: s.with.length, against: s.against.length, ...(t.challengerId ? { duel: `${members.nameOf(t.authorId)} vs ${members.nameOf(t.challengerId)}` } : {}) };
           }),
           total_open: open.length,
-          best_records: theses.leaders(ctx.guildId, 0).map((l) => `${members.nameOf(l.userId)}: ${l.agedWell} of ${l.settled} aged well`),
+          leaderboard: theses
+            .leaders(ctx.guildId, 0)
+            .map((l, i) => `${i + 1}. ${members.nameOf(l.userId)}: ${l.right} right calls (${l.takesRight} of ${l.takes} own takes aged well, ${l.sidesRight} of ${l.sides} sides read right)`),
         };
       },
     };

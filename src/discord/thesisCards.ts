@@ -1,8 +1,9 @@
+import { ordinal } from './deskCards.js';
 import { ButtonBuilder, ButtonStyle, type ContainerBuilder } from 'discord.js';
 import { discordTime, formatPrice, formatUsd } from '../format.js';
 import { type ThesisSpec, measureLabel } from '../theses/spec.js';
 import { timeLeft } from '../theses/moments.js';
-import type { MomentKind, Record, Sides, Thesis, ThesisStatus } from '../theses/store.js';
+import type { Leader, MomentKind, Record, Sides, Thesis, ThesisStatus } from '../theses/store.js';
 import type { Verdict } from '../theses/measure.js';
 import { myPageButton } from './pageCards.js';
 import { CHART_NAME } from '../charts/maker.js';
@@ -330,7 +331,7 @@ export function progressText(t: Thesis, now: number, value: number | null, holdi
 }
 
 /** A member's record of takes: /takes @member and the record view. With a chart of their recent form. */
-export function recordContainer(name: string, r: Record, opts: { chart?: boolean } = {}): ContainerBuilder {
+export function recordContainer(name: string, r: Record, opts: { chart?: boolean; rank?: { rank: number; of: number; leader: Leader } | null } = {}): ContainerBuilder {
   const settled = r.agedWell + r.agedBadly;
   const duels = r.duels.won + r.duels.lost;
   const rival = r.duels.against[0];
@@ -339,6 +340,7 @@ export function recordContainer(name: string, r: Record, opts: { chart?: boolean
     settled || r.open
       ? `**${r.agedWell}** aged well · **${r.agedBadly}** aged badly · **${r.open}** open${settled ? ` · ${Math.round((r.agedWell / settled) * 100)}% hit rate` : ''}`
       : 'Nothing on the record yet.',
+    opts.rank && `**Leaderboard:** ${ordinal(opts.rank.rank)} of ${opts.rank.of} · ${opts.rank.leader.right} right calls (${leaderDetail(opts.rank.leader)})`,
     opts.chart && picture(CHART_NAME, `${name}'s recent takes`),
     r.bold.total > 0 && `**Bold takes** (history said under 25%): ${r.bold.right} of ${r.bold.total} aged well`,
     r.bestAsset && `**Reads ${r.bestAsset.asset} best:** ${r.bestAsset.right} of ${r.bestAsset.total}`,
@@ -351,7 +353,14 @@ export function recordContainer(name: string, r: Record, opts: { chart?: boolean
 }
 
 /** The server's debates and records: /takes with no member. */
-export function boardContainer(open: { t: Thesis; sides: Sides }[], leaders: { userId: string; agedWell: number; settled: number }[]): ContainerBuilder {
+/** "4 of 6 takes, 9 of 12 sides": what a leaderboard row is made of. */
+export function leaderDetail(l: Leader): string {
+  return [l.takes ? `${l.takesRight} of ${l.takes} ${l.takes === 1 ? 'take' : 'takes'}` : null, l.sides ? `${l.sidesRight} of ${l.sides} ${l.sides === 1 ? 'side' : 'sides'}` : null]
+    .filter(Boolean)
+    .join(', ');
+}
+
+export function boardContainer(open: { t: Thesis; sides: Sides }[], leaders: Leader[], opts: { chart?: boolean } = {}): ContainerBuilder {
   const hottest = [...open].sort((a, b) => b.sides.with.length + b.sides.against.length - (a.sides.with.length + a.sides.against.length)).slice(0, 6);
   return card(ACCENT.page, [
     '## ⚖️ The takes',
@@ -360,7 +369,10 @@ export function boardContainer(open: { t: Thesis; sides: Sides }[], leaders: { u
       ? hottest.map(({ t, sides }) => `#${t.id} ${t.claim} · <@${t.authorId}> · with ${sides.with.length}, against ${sides.against.length} · ${discordTime(t.checkAt!, 'R')}`).join('\n')
       : kicker('None yet. Bring one: @Ledger and say what you think will happen'),
     leaders.length > 0 && divider(),
-    leaders.length > 0 && '**Best records**',
-    leaders.length > 0 && leaders.map((l, i) => `${i + 1}. <@${l.userId}> ${l.agedWell} of ${l.settled} aged well`).join('\n'),
+    leaders.length > 0 && '**Leaderboard**',
+    leaders.length > 0 && kicker('Right calls: your own takes that aged well, plus the sides you took that turned out right.'),
+    opts.chart && picture(CHART_NAME, 'Leaderboard'),
+    leaders.length > 0 && leaders.slice(0, 10).map((l, i) => `${i + 1}. <@${l.userId}> · ${l.right} right (${leaderDetail(l)})`).join('\n'),
+    leaders.length > 0 && kicker('Ask me "what\'s my rank?" for your exact place.'),
   ]);
 }

@@ -226,7 +226,16 @@ describe('the thesis record', () => {
 
     expect(store.record('g', 'alice')).toMatchObject({ logged: 3, agedWell: 1, agedBadly: 1, open: 1, contrarianWins: 1, best: { id: won.id } });
     expect(store.record('g', 'bob')).toMatchObject({ logged: 0, sidesRight: 1, sidesSettled: 2 });
-    expect(store.leaders('g', 0)).toEqual([{ userId: 'alice', agedWell: 1, settled: 2 }]);
+    // Own takes and sides both count; Ledger's leans don't.
+    expect([...store.leaders('g', 0)].sort((a, b) => a.userId.localeCompare(b.userId))).toEqual([
+      { userId: 'alice', right: 1, total: 2, takesRight: 1, takes: 2, sidesRight: 0, sides: 0 },
+      { userId: 'bob', right: 1, total: 2, takesRight: 0, takes: 0, sidesRight: 1, sides: 2 },
+    ]);
+    // Everyone gets an exact place, past the top ten too.
+    expect(store.rankOf('g', 'alice')).toMatchObject({ rank: 1, of: 2, leader: { right: 1 } });
+    expect(store.rankOf('g', 'bob')).toMatchObject({ rank: 2, of: 2 });
+    expect(store.rankOf('g', 'nobody')).toBeNull();
+    expect(store.leaders('g', 0, 1)).toHaveLength(1);
     expect(store.open('g').map((t) => t.id)).toEqual([open.id]);
     expect(store.sidedBy('g', 'bob').map((s) => s.side)).toEqual(['against', 'against']);
   });

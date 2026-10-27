@@ -30,7 +30,7 @@ import { handlePageInteraction, showMyPage } from './pageButtons.js';
 import { myPageButton } from './pageCards.js';
 import { postableReply } from './text.js';
 import { handleThesisButton } from './thesisButtons.js';
-import { boardContainer, recordContainer, thesisCard } from './thesisCards.js';
+import { boardContainer, leaderDetail, recordContainer, thesisCard } from './thesisCards.js';
 import { ACCENT, card, cards, kicker, rebuilding, replyWithCards, row } from './ui.js';
 import { handleWatchButton, watchButton } from './watchButtons.js';
 
@@ -44,7 +44,7 @@ export const commandData = [
   guildCommand('ledger', 'Your takes: open theses, verdicts, debates you joined, your watchlist'),
   guildCommand('take', 'Bring a take: Ledger argues it out with real data')
     .addStringOption((o) => o.setName('take').setDescription('e.g. "SOL beats ETH this month", "NVDA up 10% by December"').setRequired(true).setMaxLength(300)),
-  guildCommand('takes', "Someone's record of takes, or the server's open debates")
+  guildCommand('takes', "Someone's record of takes, or the open debates and the leaderboard")
     .addUserOption((o) => o.setName('member').setDescription('Whose record (default: the open debates)')),
   guildCommand('watch', 'Your watchlist: DMs when something you follow happens')
     .addSubcommand((s) =>
@@ -213,7 +213,7 @@ async function take(interaction: ChatInputCommandInteraction<'cached'>, deps: Co
   deps.theses.attachMessage(result.thesis.id, interaction.channelId, message.id);
 }
 
-/** /takes: a member's record, or the server's open debates and best records. */
+/** /takes: a member's record, or the server's open debates and the leaderboard. */
 async function takes(interaction: ChatInputCommandInteraction<'cached'>, { theses, members, charts }: CommandDeps): Promise<void> {
   const member = interaction.options.getMember('member');
   if (member) {
@@ -223,13 +223,27 @@ async function takes(interaction: ChatInputCommandInteraction<'cached'>, { these
     // Their recent form as a chart, when there are a couple of checked takes to draw.
     const chart = await charts?.form(member.displayName, record.form).catch(() => null);
     await replyWithCards(interaction, {
-      ...cards([recordContainer(member.displayName, record, { chart: !!chart })]),
+      ...cards([recordContainer(member.displayName, record, { chart: !!chart, rank: theses.rankOf(interaction.guildId, member.id) })]),
       files: chart ? [{ attachment: chart.data, name: chart.name }] : [],
     });
     return;
   }
   const open = theses.open(interaction.guildId).map((t) => ({ t, sides: theses.sides(t.id) }));
-  await interaction.reply(cards([boardContainer(open, theses.leaders(interaction.guildId, 0))]));
+  const leaders = theses.leaders(interaction.guildId, 0);
+  await interaction.deferReply();
+  // The leaderboard as an image once there's someone on it.
+  const chart = leaders.length
+    ? await charts
+        ?.board({
+          title: 'Leaderboard',
+          subtitle: 'Right calls: takes that aged well, plus sides read right.',
+          unit: 'right',
+          // The top five as bars; the card's text lists the top ten.
+          rows: leaders.slice(0, 5).map((l) => ({ label: members.nameOf(l.userId), score: l.right, detail: leaderDetail(l) })),
+        })
+        .catch(() => null)
+    : null;
+  await replyWithCards(interaction, { ...cards([boardContainer(open, leaders, { chart: !!chart })]), files: chart ? [{ attachment: chart.data, name: chart.name }] : [] });
 }
 
 async function watch(interaction: ChatInputCommandInteraction<'cached'>, { alerts, feed, desk }: CommandDeps): Promise<void> {

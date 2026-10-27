@@ -262,6 +262,45 @@ export function barChart(c: BarChart): string {
   return frame(c.title, c.subtitle, parts, c.note, INK.main);
 }
 
+export interface RankChart {
+  title: string;
+  subtitle?: string;
+  /** Said after each score, e.g. "right". */
+  unit?: string;
+  rows: { label: string; score: number; detail?: string; highlight?: boolean }[];
+}
+
+/** A leaderboard: one bar per member, best first; the highlighted row (Ledger) in amber. */
+export function rankChart(c: RankChart): string {
+  if (!c.rows.length) return emptyChart(c.title, 'No scores yet.');
+  const rowH = 40;
+  const top = PAD.top + 6;
+  const height = top + c.rows.length * rowH + 24;
+  const max = Math.max(1, ...c.rows.map((r) => r.score));
+  const nameW = 180;
+  const barX = PAD.left + nameW;
+  const barMax = WIDTH - barX - 200;
+  const parts: string[] = [];
+  c.rows.forEach((r, i) => {
+    const y0 = top + i * rowH;
+    const color = r.highlight ? INK.target : INK.main;
+    if (r.highlight) parts.push(`<rect x="${PAD.left - 4}" y="${f(y0 + 2)}" width="${WIDTH - PAD.left - 10}" height="${rowH - 4}" rx="8" fill="${INK.target}" fill-opacity="0.08"/>`);
+    parts.push(text(PAD.left + 4, y0 + 26, `${i + 1}`, { size: TYPE.tag, color: INK.sub, weight: 600 }));
+    parts.push(text(PAD.left + 34, y0 + 26, clip(r.label, TYPE.tag, nameW - 44), { size: TYPE.tag, color: INK.title, weight: r.highlight ? 600 : undefined }));
+    const w = Math.max(4, (r.score / max) * barMax);
+    parts.push(`<rect x="${f(barX)}" y="${f(y0 + 10)}" width="${f(w)}" height="${rowH - 20}" rx="5" fill="${color}" fill-opacity="${r.highlight ? 0.9 : 0.75}"/>`);
+    parts.push(text(barX + w + 8, y0 + 26, `${Math.round(r.score)}${c.unit ? ` ${c.unit}` : ''}${r.detail ? ` · ${r.detail}` : ''}`, { size: TYPE.small, color: INK.sub }));
+  });
+  return [
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${height}" viewBox="0 0 ${WIDTH} ${height}" font-family="${FONT}">`,
+    `<rect width="${WIDTH}" height="${height}" rx="16" fill="${INK.panel}"/>`,
+    text(PAD.left + 2, 32, clip(c.title, TYPE.title * 1.04, WIDTH - PAD.left - 10), { size: TYPE.title, color: INK.title, weight: 600 }),
+    c.subtitle ? text(PAD.left + 2, 58, clip(c.subtitle, TYPE.sub, WIDTH - PAD.left - 10), { size: TYPE.sub, color: INK.sub }) : '',
+    ...parts,
+    '</svg>',
+  ].join('');
+}
+
 export function emptyChart(title: string, message: string): string {
   return frame(title, undefined, [text(WIDTH / 2, HEIGHT / 2 + 10, message, { size: TYPE.sub, color: INK.sub, anchor: 'middle' })], undefined, INK.main);
 }
