@@ -1,10 +1,13 @@
 /**
  * Ledger's charts, drawn as SVG by hand: one quiet style that matches the cards (dark panel, soft
- * colours, no red/green alarm), sized for a Discord card. Pure functions; render.ts turns them into PNGs.
+ * colours, no red/green alarm). Sized for phones first: most members read Discord on one, where the
+ * image shows at roughly half its width, so the text is large and the labels few. Pure functions;
+ * render.ts turns them into PNGs.
  */
 
-export const WIDTH = 800;
-export const HEIGHT = 300;
+export const WIDTH = 640;
+/** The plot's height; a key under it adds rows. */
+export const HEIGHT = 360;
 
 export const INK = {
   panel: '#1e1f23',
@@ -12,7 +15,9 @@ export const INK = {
   axis: '#8b8f98',
   title: '#e6e7ea',
   sub: '#9a9ea7',
+  faint: '#5c6068',
   main: '#8ea2ff',
+  second: '#c9a46a',
   avg50: '#c9a46a',
   avg200: '#6f8f78',
   target: '#f0b232',
@@ -20,7 +25,10 @@ export const INK = {
   down: '#a8797a',
 } as const;
 
-const PAD = { top: 58, right: 74, bottom: 34, left: 18 };
+/** Type sizes, in chart pixels (the PNG is drawn at twice this). */
+const TYPE = { title: 22, sub: 15, axis: 14, tag: 14, small: 13, note: 12 } as const;
+const PAD = { top: 82, right: 96, bottom: 40, left: 14 };
+const KEY_ROW = 24;
 const FONT = "'IBM Plex Sans', sans-serif";
 
 export interface Point {
@@ -32,7 +40,10 @@ export interface Point {
 export interface Line {
   points: Point[];
   color: string;
+  /** Written at the line's end, in its colour (averages: "50-day"). */
   label?: string;
+  /** A value tag on the right axis instead of the default one (compare charts: "SOL −4.1%"). */
+  tag?: string;
   width?: number;
   dash?: boolean;
   /** A soft fill under the line (the main series only). */
@@ -57,17 +68,23 @@ export interface LineChart {
   levels?: Level[];
   marks?: Mark[];
   format: (v: number) => string;
-  /** Small print, bottom right: the source. */
+  /** Small print, top right: the source. */
   note?: string;
   /** Extend the time axis to here (e.g. a check-back date still ahead). */
   xEnd?: number;
   /** Numbered markers on the main line: the days an event map talks about. */
   dots?: { t: number; label: string }[];
-  /** The typical range ahead: a soft wedge from today's value to the low/high band at a future date. */
+  /** The typical range ahead: a soft wedge from a starting value to a low/high band at a later date. */
   cone?: { t0: number; v0: number; t1: number; lo: number; hi: number; label: string };
+  /** Scheduled events along the time axis (FOMC, CPI): small ticks with names. */
+  events?: { t: number; label: string }[];
+  /** The final value of a settled take: a check or a cross on the line. */
+  finish?: { t: number; v: number; ok: boolean };
+  /** Lines of text under the chart: an event key. */
+  key?: string[];
 }
 
-/** A line chart: the measured series, its averages, a target and markers, with a label on the latest value. */
+/** A line chart: series, levels, markers and a value tag on the right; sized for phones. */
 export function lineChart(c: LineChart): string {
   const all = c.lines.flatMap((l) => l.points);
   if (all.length < 2) return emptyChart(c.title, 'Not enough history to draw.');
@@ -75,76 +92,114 @@ export function lineChart(c: LineChart): string {
   const t1 = Math.max(c.xEnd ?? 0, ...all.map((p) => p.t));
   const values = [...all.map((p) => p.v), ...(c.levels ?? []).map((l) => l.v), ...(c.cone ? [c.cone.lo, c.cone.hi] : [])];
   const [lo, hi] = niceRange(Math.min(...values), Math.max(...values));
-  const x = (t: number) => PAD.left + ((t - t0) / Math.max(1, t1 - t0)) * (WIDTH - PAD.left - PAD.right);
-  const y = (v: number) => PAD.top + (1 - (v - lo) / (hi - lo)) * (HEIGHT - PAD.top - PAD.bottom);
+  const plotRight = WIDTH - PAD.right;
+  // Scheduled events get their own row under the plot, so they never sit on the lines.
+  const events = (c.events ?? []).filter((e) => e.t >= t0 && e.t <= t1).sort((a, b) => a.t - b.t);
+  const plotBottom = HEIGHT - PAD.bottom - (events.length ? 24 : 0);
+  const x = (t: number) => PAD.left + ((t - t0) / Math.max(1, t1 - t0)) * (plotRight - PAD.left);
+  const y = (v: number) => PAD.top + (1 - (v - lo) / (hi - lo)) * (plotBottom - PAD.top);
+
+  // Value tags on the right axis: one per tagged line, or the main line's latest value. Kept apart.
+  const tagged = c.lines.filter((l) => l.tag && l.points.length);
+  const tags = spread(
+    (tagged.length ? tagged : [c.lines[0]!])
+      .filter((l) => l.points.length)
+      .map((l) => ({ y: y(l.points.at(-1)!.v), label: l.tag ?? c.format(l.points.at(-1)!.v), color: l.color })),
+    26,
+  );
 
   const parts: string[] = [];
-  const tagY = y(c.lines[0]!.points.at(-1)?.v ?? lo);
   for (const v of ticks(lo, hi)) {
-    parts.push(`<line x1="${PAD.left}" x2="${WIDTH - PAD.right}" y1="${f(y(v))}" y2="${f(y(v))}" stroke="${INK.grid}" stroke-width="1"/>`);
-    if (Math.abs(y(v) - tagY) > 16) parts.push(text(WIDTH - PAD.right + 8, y(v) + 4, c.format(v), { size: 11, color: INK.axis }));
+    parts.push(`<line x1="${PAD.left}" x2="${plotRight}" y1="${f(y(v))}" y2="${f(y(v))}" stroke="${INK.grid}" stroke-width="1"/>`);
+    if (tags.every((t) => Math.abs(y(v) - t.y) > 20)) parts.push(text(plotRight + 10, y(v) + 5, c.format(v), { size: TYPE.axis, color: INK.axis }));
   }
-  for (const m of timeTicks(t0, t1)) {
-    parts.push(text(x(m.t), HEIGHT - 12, m.label, { size: 11, color: INK.axis, anchor: 'middle' }));
-  }
+  for (const m of timeTicks(t0, t1)) parts.push(text(x(m.t), HEIGHT - 12, m.label, { size: TYPE.axis, color: INK.axis, anchor: 'middle' }));
   for (const m of c.marks ?? []) {
     const mx = x(Math.min(Math.max(m.t, t0), t1));
-    parts.push(`<line x1="${f(mx)}" x2="${f(mx)}" y1="${PAD.top - 4}" y2="${HEIGHT - PAD.bottom}" stroke="${INK.sub}" stroke-width="1" stroke-dasharray="2 4"/>`);
-    const fits = mx + 5 + textWidth(m.label, 11) < WIDTH - 8;
-    parts.push(text(fits ? mx + 5 : mx - 5, PAD.top + 8, m.label, { size: 11, color: INK.sub, anchor: fits ? 'start' : 'end' }));
+    parts.push(`<line x1="${f(mx)}" x2="${f(mx)}" y1="${PAD.top - 6}" y2="${plotBottom}" stroke="${INK.sub}" stroke-width="1" stroke-dasharray="2 4"/>`);
+    const fits = mx + 6 + textWidth(m.label, TYPE.small) < WIDTH - 8;
+    parts.push(text(fits ? mx + 6 : mx - 6, PAD.top + 8, m.label, { size: TYPE.small, color: INK.sub, anchor: fits ? 'start' : 'end' }));
+  }
+  // Scheduled events: a tick up from the plot's floor, the name in the row beneath. Names that would
+  // overlap lose their date first ("FOMC"), then their name (the tick stays).
+  let freeFrom = PAD.left;
+  for (const e of events) {
+    const ex = x(e.t);
+    parts.push(`<line x1="${f(ex)}" x2="${f(ex)}" y1="${f(plotBottom - 8)}" y2="${f(plotBottom + 4)}" stroke="${INK.target}" stroke-width="2"/>`);
+    const short = e.label.replace(/ \d{1,2} \w+$/, '');
+    const name = [e.label, short].find((n) => {
+      const w = textWidth(n, TYPE.note);
+      return Math.max(ex - w / 2, PAD.left) >= freeFrom && Math.min(ex + w / 2, WIDTH - 8) - Math.max(ex - w / 2, PAD.left) >= w - 1;
+    });
+    if (!name) continue;
+    const w = textWidth(name, TYPE.note);
+    const left = Math.max(ex - w / 2, PAD.left);
+    parts.push(text(left, plotBottom + 19, name, { size: TYPE.note, color: INK.target }));
+    freeFrom = left + w + 10;
   }
   let coneLabel = '';
   if (c.cone) {
     const k = c.cone;
     const [x0, y0, x1, yHi, yLo] = [x(k.t0), y(k.v0), x(k.t1), y(k.hi), y(k.lo)];
     parts.push(`<path d="M${f(x0)} ${f(y0)} L${f(x1)} ${f(yHi)} L${f(x1)} ${f(yLo)} Z" fill="${INK.main}" fill-opacity="0.10"/>`);
-    parts.push(`<path d="M${f(x0)} ${f(y0)} L${f(x1)} ${f(yHi)} M${f(x0)} ${f(y0)} L${f(x1)} ${f(yLo)}" stroke="${INK.main}" stroke-opacity="0.45" stroke-width="1" stroke-dasharray="3 4" fill="none"/>`);
-    const w = textWidth(k.label, 10) + 8;
-    if (x1 - w - 4 > x0) {
-      // Under the band if there's room, else above it; on a backing so dashed lines don't cut through.
-      const ty = yLo + 16 < HEIGHT - PAD.bottom ? yLo + 14 : yHi - 8;
-      coneLabel = `<rect x="${f(x1 - w - 4)}" y="${f(ty - 11)}" width="${f(w)}" height="15" rx="4" fill="${INK.panel}"/>` + text(x1 - 8, ty, k.label, { size: 10, color: INK.sub, anchor: 'end' });
-    }
+    parts.push(
+      `<path d="M${f(x0)} ${f(y0)} L${f(x1)} ${f(yHi)} M${f(x0)} ${f(y0)} L${f(x1)} ${f(yLo)}" stroke="${INK.main}" stroke-opacity="0.5" stroke-width="1.2" stroke-dasharray="3 4" fill="none"/>`,
+    );
+    // The full label if it fits under the wedge, else the short one; on a backing so dashed lines don't cut through.
+    const name = textWidth(k.label, TYPE.note) + 14 < x1 - x0 ? k.label : 'typical range';
+    const w = textWidth(name, TYPE.note) + 10;
+    const ty = yLo + 20 < plotBottom - 20 ? yLo + 17 : yHi - 9;
+    coneLabel =
+      `<rect x="${f(x1 - w - 4)}" y="${f(ty - 13)}" width="${f(w)}" height="17" rx="4" fill="${INK.panel}"/>` +
+      text(x1 - 9, ty, name, { size: TYPE.note, color: INK.sub, anchor: 'end' });
   }
   const labels: string[] = [];
   for (const l of c.levels ?? []) {
-    parts.push(`<line x1="${PAD.left}" x2="${WIDTH - PAD.right}" y1="${f(y(l.v))}" y2="${f(y(l.v))}" stroke="${l.color}" stroke-width="1.5" stroke-dasharray="6 5"/>`);
-    labels.push(tag(PAD.left + 8, y(l.v), l.label, l.color));
+    parts.push(`<line x1="${PAD.left}" x2="${plotRight}" y1="${f(y(l.v))}" y2="${f(y(l.v))}" stroke="${l.color}" stroke-width="1.6" stroke-dasharray="7 5"/>`);
+    labels.push(levelTag(PAD.left + 8, y(l.v), l.label, l.color));
   }
-  // Averages first, the main line last so it sits on top.
+  // Secondary lines first, the main line last so it sits on top.
   for (const l of [...c.lines].reverse()) {
     if (l.points.length < 2) continue;
     const d = l.points.map((p, i) => `${i ? 'L' : 'M'}${f(x(p.t))} ${f(y(p.v))}`).join(' ');
     if (l.fill) {
-      const base = f(HEIGHT - PAD.bottom);
-      parts.push(`<path d="${d} L${f(x(l.points.at(-1)!.t))} ${base} L${f(x(l.points[0]!.t))} ${base} Z" fill="url(#fade)"/>`);
+      parts.push(`<path d="${d} L${f(x(l.points.at(-1)!.t))} ${plotBottom} L${f(x(l.points[0]!.t))} ${plotBottom} Z" fill="url(#fade)"/>`);
     }
     parts.push(
-      `<path d="${d}" fill="none" stroke="${l.color}" stroke-width="${l.width ?? 1.5}" stroke-linejoin="round" stroke-linecap="round"${l.dash ? ' stroke-dasharray="5 4"' : ''}/>`,
+      `<path d="${d}" fill="none" stroke="${l.color}" stroke-width="${l.width ?? 1.8}" stroke-linejoin="round" stroke-linecap="round"${l.dash ? ' stroke-dasharray="6 4"' : ''}/>`,
     );
+  }
+  // Line names at their ends, in their colour: in the runway if there is one, else just above the end.
+  const runway = (c.xEnd ?? 0) > Math.max(...all.map((p) => p.t));
+  for (const l of c.lines) {
+    if (!l.label || l.points.length < 2) continue;
+    const end = l.points.at(-1)!;
+    const ex = x(end.t);
+    const ey = y(end.v);
+    parts.push(runway ? text(ex + 8, ey + 5, l.label, { size: TYPE.note, color: l.color }) : text(ex - 6, ey - 8, l.label, { size: TYPE.note, color: l.color, anchor: 'end' }));
   }
   parts.push(...labels);
   if (coneLabel) parts.push(coneLabel);
-  // Event markers sit on the main line at their day, numbered to match the reply.
+  // Event markers sit on the main line at their day, numbered to match the key and the reply.
   for (const d of c.dots ?? []) {
     const line = c.lines[0]!.points;
     const p = line.reduce((best, q) => (Math.abs(q.t - d.t) < Math.abs(best.t - d.t) ? q : best), line[0]!);
     const cx = x(p.t);
     const cy = y(p.v);
-    const above = cy - 18 > PAD.top;
-    const ly = above ? cy - 16 : cy + 16;
-    parts.push(`<line x1="${f(cx)}" x2="${f(cx)}" y1="${f(cy)}" y2="${f(ly)}" stroke="${INK.target}" stroke-width="1"/>`);
-    parts.push(`<circle cx="${f(cx)}" cy="${f(cy)}" r="3" fill="${INK.target}"/>`);
-    parts.push(`<circle cx="${f(cx)}" cy="${f(ly)}" r="9" fill="${INK.panel}" stroke="${INK.target}" stroke-width="1.5"/>`);
-    parts.push(text(cx, ly + 4, d.label, { size: 11, color: INK.target, weight: 600, anchor: 'middle' }));
+    const ly = cy - 24 > PAD.top ? cy - 20 : cy + 20;
+    parts.push(`<line x1="${f(cx)}" x2="${f(cx)}" y1="${f(cy)}" y2="${f(ly)}" stroke="${INK.target}" stroke-width="1.2"/>`);
+    parts.push(`<circle cx="${f(cx)}" cy="${f(cy)}" r="3.5" fill="${INK.target}"/>`);
+    parts.push(`<circle cx="${f(cx)}" cy="${f(ly)}" r="11" fill="${INK.panel}" stroke="${INK.target}" stroke-width="1.6"/>`);
+    parts.push(text(cx, ly + 5, d.label, { size: TYPE.small, color: INK.target, weight: 600, anchor: 'middle' }));
   }
-  const main = c.lines[0]!;
-  const last = main.points.at(-1)!;
-  parts.push(`<circle cx="${f(x(last.t))}" cy="${f(y(last.v))}" r="4" fill="${main.color}" stroke="${INK.panel}" stroke-width="2"/>`);
-  parts.push(pill(WIDTH - PAD.right + 4, y(last.v), c.format(last.v), main.color));
-
-  const legend = c.lines.filter((l) => l.label).map((l) => ({ label: l.label!, color: l.color, dash: l.dash }));
-  return frame(c.title, c.subtitle, [...parts, ...legendItems(legend)], c.note, main.color);
+  for (const l of tagged.length ? tagged : [c.lines[0]!]) {
+    const last = l.points.at(-1);
+    if (last) parts.push(`<circle cx="${f(x(last.t))}" cy="${f(y(last.v))}" r="4.5" fill="${l.color}" stroke="${INK.panel}" stroke-width="2"/>`);
+  }
+  if (c.finish) parts.push(finishMark(x(c.finish.t), y(c.finish.v), c.finish.ok));
+  // Clear of the check or cross when the line ends in one.
+  for (const t of tags) parts.push(valueTag(plotRight + (c.finish ? 16 : 4), t.y, t.label, t.color));
+  return frame(c.title, c.subtitle, parts, c.note, c.lines[0]!.color, c.key);
 }
 
 export interface Bar {
@@ -165,16 +220,17 @@ export function barChart(c: BarChart): string {
   if (!c.bars.length) return emptyChart(c.title, 'No sessions to draw yet.');
   const values = c.bars.map((b) => b.v);
   const [lo, hi] = niceRange(Math.min(0, ...values), Math.max(0, ...values));
-  const innerW = WIDTH - PAD.left - PAD.right;
-  const step = innerW / c.bars.length;
-  const barW = Math.max(3, Math.min(26, step * 0.68));
-  const y = (v: number) => PAD.top + (1 - (v - lo) / (hi - lo)) * (HEIGHT - PAD.top - PAD.bottom);
+  const plotRight = WIDTH - PAD.right;
+  const plotBottom = HEIGHT - PAD.bottom;
+  const step = (plotRight - PAD.left) / c.bars.length;
+  const barW = Math.max(3, Math.min(22, step * 0.7));
+  const y = (v: number) => PAD.top + (1 - (v - lo) / (hi - lo)) * (plotBottom - PAD.top);
 
   const parts: string[] = [];
   const tagY = y(c.bars.at(-1)!.v);
   for (const v of ticks(lo, hi)) {
-    parts.push(`<line x1="${PAD.left}" x2="${WIDTH - PAD.right}" y1="${f(y(v))}" y2="${f(y(v))}" stroke="${v === 0 ? INK.axis : INK.grid}" stroke-width="1"/>`);
-    if (Math.abs(y(v) - tagY) > 16) parts.push(text(WIDTH - PAD.right + 8, y(v) + 4, c.format(v), { size: 11, color: INK.axis }));
+    parts.push(`<line x1="${PAD.left}" x2="${plotRight}" y1="${f(y(v))}" y2="${f(y(v))}" stroke="${v === 0 ? INK.axis : INK.grid}" stroke-width="1"/>`);
+    if (Math.abs(y(v) - tagY) > 20) parts.push(text(plotRight + 10, y(v) + 5, c.format(v), { size: TYPE.axis, color: INK.axis }));
   }
   c.bars.forEach((b, i) => {
     const cx = PAD.left + step * (i + 0.5);
@@ -185,76 +241,92 @@ export function barChart(c: BarChart): string {
       `<rect x="${f(cx - barW / 2)}" y="${f(top)}" width="${f(barW)}" height="${f(h)}" rx="2" fill="${b.v >= 0 ? INK.up : INK.down}"${latest ? '' : ' fill-opacity="0.8"'}/>`,
     );
   });
-  // Date labels: about six across, always the latest.
-  const every = Math.max(1, Math.ceil(c.bars.length / 6));
+  // Date labels: about four across, always the latest.
+  const every = Math.max(1, Math.ceil(c.bars.length / 4));
   c.bars.forEach((b, i) => {
     if ((c.bars.length - 1 - i) % every !== 0) return;
     const d = new Date(b.t);
-    parts.push(text(PAD.left + step * (i + 0.5), HEIGHT - 12, `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`, { size: 11, color: INK.axis, anchor: 'middle' }));
+    parts.push(text(PAD.left + step * (i + 0.5), HEIGHT - 12, `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`, { size: TYPE.axis, color: INK.axis, anchor: 'middle' }));
   });
   const last = c.bars.at(-1)!;
-  parts.push(pill(WIDTH - PAD.right + 4, y(last.v), c.format(last.v), last.v >= 0 ? INK.up : INK.down));
+  parts.push(valueTag(plotRight + 4, tagY, c.format(last.v), last.v >= 0 ? INK.up : INK.down));
   return frame(c.title, c.subtitle, parts, c.note, INK.main);
 }
 
 export function emptyChart(title: string, message: string): string {
-  return frame(title, undefined, [text(WIDTH / 2, HEIGHT / 2 + 10, message, { size: 14, color: INK.sub, anchor: 'middle' })], undefined, INK.main);
+  return frame(title, undefined, [text(WIDTH / 2, HEIGHT / 2 + 10, message, { size: TYPE.sub, color: INK.sub, anchor: 'middle' })], undefined, INK.main);
 }
 
 // --- pieces ---
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+/** Characters of key text that fit across the chart. */
+const KEY_CHARS = Math.floor((WIDTH - 28) / (TYPE.small * 0.56));
 
-function frame(title: string, subtitle: string | undefined, body: string[], note: string | undefined, fade: string): string {
+function frame(title: string, subtitle: string | undefined, body: string[], note: string | undefined, fade: string, key: string[] = []): string {
+  const rows = key.map((k) => (k.length > KEY_CHARS ? `${k.slice(0, KEY_CHARS - 1)}…` : k));
+  const height = HEIGHT + (rows.length ? rows.length * KEY_ROW + 14 : 0);
+  // Title and subtitle shortened to the width the source note leaves them.
+  const noteW = note ? textWidth(note, TYPE.note) + 16 : 0;
+  const titleChars = Math.floor((WIDTH - PAD.left - 10 - noteW) / (TYPE.title * 0.58));
+  const subChars = Math.floor((WIDTH - PAD.left - 10) / (TYPE.sub * 0.55));
+  const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
   return [
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}" font-family="${FONT}">`,
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${height}" viewBox="0 0 ${WIDTH} ${height}" font-family="${FONT}">`,
     `<defs><linearGradient id="fade" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${fade}" stop-opacity="0.22"/><stop offset="1" stop-color="${fade}" stop-opacity="0"/></linearGradient></defs>`,
-    `<rect width="${WIDTH}" height="${HEIGHT}" rx="14" fill="${INK.panel}"/>`,
-    text(PAD.left + 2, 26, title, { size: 16, color: INK.title, weight: 600 }),
-    subtitle ? text(PAD.left + 2, 45, subtitle, { size: 12, color: INK.sub }) : '',
+    `<rect width="${WIDTH}" height="${height}" rx="16" fill="${INK.panel}"/>`,
+    text(PAD.left + 2, 32, clip(title, titleChars), { size: TYPE.title, color: INK.title, weight: 600 }),
+    subtitle ? text(PAD.left + 2, 58, clip(subtitle, subChars), { size: TYPE.sub, color: INK.sub }) : '',
+    note ? text(WIDTH - 14, 30, note, { size: TYPE.note, color: INK.faint, anchor: 'end' }) : '',
     ...body,
-    note ? text(WIDTH - 12, HEIGHT - 12, note, { size: 10, color: INK.grid === '#2c2e34' ? '#5c6068' : INK.sub, anchor: 'end' }) : '',
+    ...(rows.length ? [`<line x1="${PAD.left}" x2="${WIDTH - 14}" y1="${HEIGHT + 4}" y2="${HEIGHT + 4}" stroke="${INK.grid}" stroke-width="1"/>`] : []),
+    ...rows.map((r, i) => text(PAD.left + 2, HEIGHT + 4 + KEY_ROW * (i + 1), r, { size: TYPE.small, color: INK.sub })),
     '</svg>',
   ].join('');
 }
 
-function legendItems(items: { label: string; color: string; dash?: boolean }[]): string[] {
-  const out: string[] = [];
-  let right = WIDTH - 14;
-  for (const item of [...items].reverse()) {
-    const w = textWidth(item.label, 11);
-    out.push(text(right, 26, item.label, { size: 11, color: INK.sub, anchor: 'end' }));
-    right -= w + 6;
-    out.push(`<line x1="${f(right - 16)}" x2="${f(right)}" y1="22" y2="22" stroke="${item.color}" stroke-width="2"${item.dash ? ' stroke-dasharray="4 3"' : ''}/>`);
-    right -= 30;
+/** Value tags spread apart vertically so two near each other stay readable. */
+function spread<T extends { y: number }>(items: T[], gap: number): T[] {
+  const sorted = [...items].sort((a, b) => a.y - b.y);
+  for (let i = 1; i < sorted.length; i++) {
+    if (sorted[i]!.y - sorted[i - 1]!.y < gap) sorted[i] = { ...sorted[i]!, y: sorted[i - 1]!.y + gap };
   }
-  return out;
+  return sorted;
 }
 
 /** A level's label sitting on its line, on a panel-coloured backing so lines behind it don't cut through. */
-function tag(xLeft: number, yLine: number, label: string, color: string): string {
-  const w = textWidth(label, 11) + 10;
+function levelTag(xLeft: number, yLine: number, label: string, color: string): string {
+  const w = textWidth(label, TYPE.tag) + 12;
   return (
-    `<rect x="${f(xLeft)}" y="${f(yLine - 9)}" width="${f(w)}" height="18" rx="5" fill="${INK.panel}" stroke="${color}" stroke-opacity="0.5"/>` +
-    text(xLeft + 5, yLine + 4, label, { size: 11, color })
+    `<rect x="${f(xLeft)}" y="${f(yLine - 11)}" width="${f(w)}" height="22" rx="6" fill="${INK.panel}" stroke="${color}" stroke-opacity="0.55"/>` +
+    text(xLeft + 6, yLine + 5, label, { size: TYPE.tag, color })
   );
 }
 
-/** The latest value in a rounded tag on the right axis. */
-function pill(xLeft: number, yMid: number, label: string, color: string): string {
-  const w = textWidth(label, 11) + 12;
-  const top = Math.min(Math.max(yMid - 10, PAD.top - 12), HEIGHT - PAD.bottom - 10);
+/** A value in a rounded tag on the right axis. */
+function valueTag(xLeft: number, yMid: number, label: string, color: string): string {
+  const w = textWidth(label, TYPE.tag) + 14;
+  const top = Math.min(Math.max(yMid - 12, PAD.top - 14), HEIGHT - PAD.bottom - 12);
   return (
-    `<rect x="${f(xLeft)}" y="${f(top)}" width="${f(w)}" height="20" rx="6" fill="${color}"/>` +
-    text(xLeft + 6, top + 14, label, { size: 11, color: INK.panel, weight: 600 })
+    `<rect x="${f(xLeft)}" y="${f(top)}" width="${f(w)}" height="24" rx="7" fill="${color}"/>` +
+    text(xLeft + 7, top + 17, label, { size: TYPE.tag, color: INK.panel, weight: 600 })
   );
+}
+
+/** A check (aged well) or a cross (aged badly) on the final point, drawn as shapes. */
+function finishMark(cx: number, cy: number, ok: boolean): string {
+  const color = ok ? INK.up : INK.down;
+  const glyph = ok
+    ? `<path d="M${f(cx - 5)} ${f(cy)} L${f(cx - 1.5)} ${f(cy + 4)} L${f(cx + 6)} ${f(cy - 5)}" stroke="${INK.panel}" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`
+    : `<path d="M${f(cx - 4.5)} ${f(cy - 4.5)} L${f(cx + 4.5)} ${f(cy + 4.5)} M${f(cx + 4.5)} ${f(cy - 4.5)} L${f(cx - 4.5)} ${f(cy + 4.5)}" stroke="${INK.panel}" stroke-width="2.6" stroke-linecap="round"/>`;
+  return `<circle cx="${f(cx)}" cy="${f(cy)}" r="12" fill="${color}" stroke="${INK.panel}" stroke-width="2"/>${glyph}`;
 }
 
 function text(x: number, y: number, s: string, o: { size: number; color: string; weight?: number; anchor?: 'start' | 'middle' | 'end' }): string {
   return `<text x="${f(x)}" y="${f(y)}" font-size="${o.size}" fill="${o.color}"${o.weight ? ` font-weight="${o.weight}"` : ''}${o.anchor ? ` text-anchor="${o.anchor}"` : ''}>${escape(s)}</text>`;
 }
 
-/** Rough width of a label in IBM Plex Sans, enough to place legends and tags. */
+/** Rough width of a label in IBM Plex Sans, enough to place tags and keep text inside the panel. */
 function textWidth(s: string, size: number): number {
   return s.length * size * 0.56;
 }
@@ -290,26 +362,26 @@ export function ticks(lo: number, hi: number): number[] {
   return out;
 }
 
-/** Axis labels that suit the span: days (and hours) for short windows, months for long ones. */
+/** Axis labels that suit the span, about five across: hours, days, or months. */
 function timeTicks(t0: number, t1: number): { t: number; label: string }[] {
   const days = (t1 - t0) / 86_400_000;
-  if (days > 50) return monthTicks(t0, t1);
-  const step = days <= 2 ? 0.25 : days <= 8 ? 1 : days <= 16 ? 2 : days <= 32 ? 5 : 7;
+  if (days > 75) return monthTicks(t0, t1);
+  const step = days <= 1.5 ? 0.25 : days <= 3 ? 0.5 : [1, 2, 3, 5, 7, 10, 14].find((s) => days / s <= 5) ?? 14;
   const out: { t: number; label: string }[] = [];
   const first = Math.ceil(t0 / (step * 86_400_000)) * step * 86_400_000;
   for (let t = first; t <= t1; t += step * 86_400_000) {
     const share = (t - t0) / (t1 - t0);
-    if (share < 0.04 || share > 0.96) continue;
+    if (share < 0.06 || share > 0.94) continue;
     const d = new Date(t);
     out.push({ t, label: step < 1 ? `${String(d.getUTCHours()).padStart(2, '0')}:00` : `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}` });
   }
   return out;
 }
 
-/** Month starts across the range: every month for short spans, every 2nd or 3rd for longer ones. */
+/** Month starts across the range: monthly for short spans, every 2nd, 3rd or 6th for longer ones. */
 function monthTicks(t0: number, t1: number): { t: number; label: string }[] {
   const months = (t1 - t0) / (30 * 86_400_000);
-  const every = months > 8 ? 2 : 1;
+  const every = months > 30 ? 6 : months > 14 ? 3 : months > 6 ? 2 : 1;
   const out: { t: number; label: string }[] = [];
   const d = new Date(t0);
   let y = d.getUTCFullYear();
@@ -323,7 +395,7 @@ function monthTicks(t0: number, t1: number): { t: number; label: string }[] {
     if (t > t1) break;
     // Keep labels clear of the edges.
     const share = (t - t0) / (t1 - t0);
-    if (share > 0.03 && share < 0.97 && m % every === 0) out.push({ t, label: m === 0 ? `${MONTHS[m]} '${String(y).slice(2)}` : MONTHS[m]! });
+    if (share > 0.05 && share < 0.95 && m % every === 0) out.push({ t, label: m === 0 ? `${MONTHS[m]} '${String(y).slice(2)}` : MONTHS[m]! });
     m++;
   }
   return out;

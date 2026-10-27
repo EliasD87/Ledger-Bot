@@ -44,7 +44,12 @@ describe('the event engine', () => {
   it('numbers the events on the chart', () => {
     const points = series(60).map((c) => ({ t: Date.parse(`${c.date}T00:00:00Z`), v: c.close }));
     const svg = lineChart({ title: 'X', lines: [{ points, color: '#fff' }], format: (v) => v.toFixed(0), dots: [{ t: points[30]!.t, label: '1' }, { t: points[50]!.t, label: '2' }] });
-    expect(svg.match(/r="9"/g)).toHaveLength(2);
+    expect(svg.match(/r="11"/g)).toHaveLength(2);
     expect(svg).toContain('>2</text>');
+    // A key under the chart makes it taller and is cut to fit the width.
+    const keyed = lineChart({ title: 'X', lines: [{ points, color: '#fff' }], format: (v) => v.toFixed(0), key: ['1  29 Jul  +6.6%  ' + 'x'.repeat(200)] });
+    expect(keyed).toMatch(/height="(\d+)"/);
+    expect(Number(keyed.match(/height="(\d+)"/)![1])).toBeGreaterThan(360);
+    expect(keyed).toContain('…');
   });
 });

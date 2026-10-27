@@ -1,7 +1,7 @@
 import { ComponentType, MessageFlags } from 'discord.js';
 import { describe, expect, it } from 'vitest';
 import type { History } from '../src/analysis/history.js';
-import { assetsChart, flowsChart, lookbackFor, progressChart, thesisChart, typicalRange } from '../src/charts/charts.js';
+import { assetsChart, flowsChart, lookbackFor, progressChart, thesisChart, typicalRange, verdictChart } from '../src/charts/charts.js';
 import { niceRange, ticks } from '../src/charts/draw.js';
 import { toPng } from '../src/charts/render.js';
 import { thesisCard } from '../src/discord/thesisCards.js';
@@ -29,7 +29,8 @@ describe('charts', () => {
     expect(take).toContain('target 100,000');
     expect(take).toContain('Binance');
     const pair = assetsChart([sol, btc]);
-    expect(pair).toContain('rising means SOL is ahead');
+    expect(pair).toContain('both = 100 on');
+    expect(pair).toMatch(/SOL [+−]\d/);
     const flows = flowsChart({
       asset: 'BTC',
       latest: { date: '2026-10-22', totalNetInflow: -635.5e6 },
@@ -50,7 +51,7 @@ describe('charts', () => {
     expect([lookbackFor(1), lookbackFor(14), lookbackFor(60), lookbackFor(365)]).toEqual([7, 42, 180, 730]);
     const twoWeeks = thesisChart({ kind: 'price', asset: 'BTC', direction: 'up', target: 90_000, horizonDays: 14 }, [btc]);
     expect(twoWeeks).toContain('last 42 days, then the runway to');
-    expect(twoWeeks).toContain('typical range by');
+    expect(twoWeeks).toContain('typical range');
     expect(twoWeeks).toContain('check-back');
     expect(twoWeeks).not.toContain('200-day'); // averages only on long windows
     expect(thesisChart({ kind: 'price', asset: 'BTC', direction: 'up', target: 90_000, horizonDays: 180 }, [btc])).toContain('200-day');
@@ -59,6 +60,30 @@ describe('charts', () => {
     expect(r.hi).toBeGreaterThan(100);
     expect(r.hi * r.lo).toBeCloseTo(100 * 100); // symmetric in log terms
     expect(typicalRange(btc.closes.slice(0, 10), 100, 14, false)).toBeNull();
+  });
+
+  it('draws two-asset takes as two rebased lines, with events on the runway', () => {
+    const svg = thesisChart({ kind: 'relative', asset: 'SOL', versus: 'BTC', direction: 'up', horizonDays: 30 }, [sol, btc], {
+      events: [{ t: NOW + 4 * DAY, label: 'FOMC 28 Oct' }],
+    });
+    expect(svg).toContain('both = 100 on');
+    expect(svg).toMatch(/>SOL [+−][\d.]+%</);
+    expect(svg).toMatch(/>BTC [+−][\d.]+%</);
+    expect(svg).toContain('FOMC 28 Oct');
+    expect(svg).not.toMatch(/NaN|undefined/);
+  });
+
+  it('draws the check-back with where it finished against the range it had when logged', () => {
+    const spec = { kind: 'price', asset: 'BTC', direction: 'up', target: 100_000, horizonDays: 30 } as const;
+    const t = { id: 7, claim: 'BTC above 100,000 in a month', spec, startValue: 80_000, startAt: NOW - 30 * DAY, checkAt: NOW } as Thesis;
+    const outside = verdictChart(t, [btc], 101_000, true);
+    expect(outside).toContain('aged well');
+    expect(outside).toContain('outside its typical range');
+    expect(outside).toContain('stroke-linecap="round" stroke-linejoin="round"'); // the check mark
+    const inside = verdictChart(t, [btc], 80_500, false);
+    expect(inside).toContain('aged badly');
+    expect(inside).toContain('inside its typical range');
+    expect(isPng(toPng(outside))).toBe(true);
   });
 
   it('picks round axis steps', () => {

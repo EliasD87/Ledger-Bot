@@ -89,7 +89,7 @@ const draftId = await post('chat reply + stress test', cards([lead, ...thesisCar
   const media = JSON.stringify(after.components).match(/"media":\{"url":"([^"]+)"/)?.[1];
   console.log(`edit kept the chart: ${media && !media.startsWith('attachment://') ? 'yes' : `NO (${media ?? 'no media'})`} · attachments: ${after.attachments.map((a) => a.filename).join(', ') || 'none'}`);
 }
-const progress = await charts.progress(open, open.startValue! * 1.03, NOW);
+const progress = await charts.verdict(agedWell, agedWell.endValue!, true);
 await post('check-back reply', verdictPost({ thesis: agedWell, endValue: agedWell.endValue!, held: true }, sides, { chart: !!progress }), [progress]);
 await post(
   'your takes',

@@ -466,8 +466,14 @@ export class ToolKit {
         if ('error' in found) return { error: found.error };
         const { main, drivers, map } = found;
         const dots = map.moves.map((m, i) => ({ date: m.date, label: String(i + 1) }));
+        // The key under the chart, so it explains itself when it's shared on its own.
+        const day = (iso: string) => new Date(`${iso}T00:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+        const key = map.moves.map((m, i) => {
+          const h = m.headlines[0];
+          return `${i + 1} · ${day(m.date)} · ${signedPct(m.move).replace(/(\.\d)\d%/, '$1%')} · ${h ? `${h.title} (${h.source})` : 'no clear news that day'}`;
+        });
         if (!draft && this.deps.charts) {
-          const drawn = await this.deps.charts.window([main.asset.symbol], days, dots).catch(() => null);
+          const drawn = await this.deps.charts.window([main.asset.symbol], days, dots, key).catch(() => null);
           if (drawn && !('error' in drawn)) offerChart(drawn.chart, 3);
         }
         return {

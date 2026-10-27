@@ -113,7 +113,7 @@ export async function announceVerdicts(client: Client, theses: ThesisStore, verd
         const message = await channel.messages.fetch(t.messageId).catch(() => null);
         if (message) await message.edit(rebuilding(message, CHART_NAME, (chart) => thesisCard(t, sides, { chart }))).catch(() => {});
       }
-      const chart = await charts?.progress(t, v.endValue, Date.now()).catch(() => null);
+      const chart = await charts?.verdict(t, v.endValue, v.held).catch(() => null);
       await channel.send({
         ...verdictPost(v, sides, { chart: !!chart }),
         files: chart ? [{ attachment: chart.data, name: chart.name }] : [],
