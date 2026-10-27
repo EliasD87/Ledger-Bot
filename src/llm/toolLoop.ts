@@ -29,6 +29,7 @@ export async function chatWithTools(model: ChatModel, messages: ChatMessage[], o
   const toolsUsed: string[] = [];
   const toolResults: string[] = [];
   const maxRounds = opts.maxRounds ?? 3;
+  let nudged = false;
   for (let round = 1; ; round++) {
     const lastRound = round >= maxRounds;
     const turn = await model.complete(transcript, {
@@ -37,8 +38,17 @@ export async function chatWithTools(model: ChatModel, messages: ChatMessage[], o
       toolChoice: lastRound ? 'none' : 'auto',
     });
     opts.onUsage(turn.usage);
+    // Raw data instead of a message (["TLT", "TNX"]) is a tool call that never happened: one more round to make it properly.
+    if (turn.toolCalls.length === 0 && looksLikeRawData(turn.text) && !lastRound && !nudged) {
+      nudged = true;
+      transcript.push({
+        role: 'system',
+        content: 'Your last reply was raw data, not a message for the member. If you need data, call the tool properly now; otherwise answer in plain words.',
+      });
+      continue;
+    }
     if (turn.toolCalls.length === 0 || lastRound) {
-      if (turn.text) return { text: turn.text, toolsUsed, toolResults, transcript };
+      if (turn.text && !looksLikeRawData(turn.text)) return { text: turn.text, toolsUsed, toolResults, transcript };
       // Nothing left once tool-call markup is taken out: ask once more for the answer itself.
       const retry = await model.complete([...transcript, { role: 'system', content: 'Write your reply to the member now, in plain text, from the tool results above.' }], {
         maxTokens: opts.maxTokens,
@@ -46,7 +56,7 @@ export async function chatWithTools(model: ChatModel, messages: ChatMessage[], o
         toolChoice: 'none',
       });
       opts.onUsage(retry.usage);
-      return { text: retry.text, toolsUsed, toolResults, transcript };
+      return { text: looksLikeRawData(retry.text) ? '' : retry.text, toolsUsed, toolResults, transcript };
     }
 
     transcript.push({
@@ -64,5 +74,17 @@ export async function chatWithTools(model: ChatModel, messages: ChatMessage[], o
       toolResults.push(result);
       transcript.push({ role: 'tool', tool_call_id: call.id, content: result });
     }
+  }
+}
+
+/** A reply that is only JSON (an array or object): tool arguments written out instead of a message. */
+export function looksLikeRawData(text: string): boolean {
+  const t = text.trim();
+  if (!/^[[{]/.test(t) || !/[\]}]$/.test(t)) return false;
+  try {
+    JSON.parse(t);
+    return true;
+  } catch {
+    return false;
   }
 }

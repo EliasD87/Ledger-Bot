@@ -163,8 +163,10 @@ const PRICE_TOOLS: Tool[] = [
     function: {
       name: 'get_price',
       description:
-        'Live price and change for crypto (Binance, last 24h) and US stocks (SoSoValue, on the day), up to 10 tickers at once. ' +
+        'Live price and change for crypto, US stocks and ETFs, commodities and macro gauges, up to 10 at once. ' +
         'Use it for any price question: "btc price?", "how is nvda doing", "sol vs eth today", "mstr up or down". ' +
+        'Macro and commodities have their own symbols, use them rather than ETF proxies: DXY (the dollar index), US10Y (the 10-year yield, in %), ' +
+        'VIX, SP500 (the S&P 500), WTI and BRENT (oil), GOLD, SILVER, NATGAS, COPPER. Names work too ("the dollar", "10 year yield", "crude"). ' +
         'Read the numbers out; never say why something moved.',
       parameters: {
         type: 'object',

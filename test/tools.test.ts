@@ -216,3 +216,32 @@ describe('ToolKit', () => {
     expect(out.not_found).toMatch(/^NOPE:/);
   });
 });
+
+describe('raw data instead of a reply', () => {
+  it('spots a reply that is only JSON', async () => {
+    const { looksLikeRawData } = await import('../src/llm/toolLoop.js');
+    expect(looksLikeRawData('["TLT", "TNX"]')).toBe(true);
+    expect(looksLikeRawData('{"symbols": ["US10Y"]}')).toBe(true);
+    expect(looksLikeRawData('The 10-year is at 4.98% [up a bit].')).toBe(false);
+    expect(looksLikeRawData('[sic] not json]')).toBe(false);
+  });
+
+  it('gives the model one more round to make the lookup properly, and never returns the raw data', async () => {
+    // What happened on 28 Oct: "10 year yield?" answered with ["TLT", "TNX"].
+    const { model, calls } = scriptedModel([
+      { text: '["TLT", "TNX"]' },
+      { toolCalls: [{ id: 't1', name: 'get_price', arguments: '{"symbols":["US10Y"]}' }] },
+      { text: 'The 10-year is at 4.98%.' },
+    ]);
+    const result = await chatWithTools(model, [{ role: 'user', content: 'Elias: 10 year yield?' }], {
+      maxTokens: 100,
+      tools: [],
+      runTool: async () => '{"prices":[{"ticker":"US10Y","price":"4.98"}]}',
+      onUsage: () => {},
+      maxRounds: 4,
+    });
+    expect(result.text).toBe('The 10-year is at 4.98%.');
+    expect(result.toolsUsed).toEqual(['get_price']);
+    expect(JSON.stringify(calls[1]!.messages.at(-1))).toContain('raw data');
+  });
+});
