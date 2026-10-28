@@ -70,9 +70,9 @@ describe('cards fit Discord and read like a record', () => {
     expect(checkLimits(thesisCard(open, crowd)).text).toContain("I'm against");
   });
 
-  it('check-back posts ping only the author and show a contrarian win', () => {
+  it('check-back posts notify nobody and show a contrarian win', () => {
     const post = verdictPost({ thesis: { ...open, status: 'aged_well', endValue: 0.045 }, endValue: 0.045, held: true }, crowd);
-    expect(post.allowedMentions.users).toEqual(['111']);
+    expect(post.allowedMentions.users).toEqual([]);
     const { text } = checkLimits(post);
     expect(text).toMatch(/aged well/);
     expect(text).toMatch(/contrarian/i);

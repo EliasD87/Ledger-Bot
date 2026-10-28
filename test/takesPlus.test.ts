@@ -71,7 +71,7 @@ describe('duels', () => {
     expect(store.record('g', 'bob').duels).toEqual({ won: 1, lost: 2, against: [{ userId: 'alice', won: 1, lost: 2 }] });
   });
 
-  it('names the duel winner on the check-back and pings both', () => {
+  it('names the duel winner on the check-back without notifying anyone', () => {
     const { store, make } = setup();
     const t = make('alice');
     store.log(t.id, 80_000, NOW);
@@ -79,7 +79,7 @@ describe('duels', () => {
     store.settle(t.id, 85_000, false, NOW + DAY);
     const post = verdictPost({ thesis: store.get(t.id)!, endValue: 85_000, held: false }, store.sides(t.id));
     expect(JSON.stringify(post.components)).toContain('Duel: <@bob> wins against <@alice>');
-    expect(post.allowedMentions.users).toEqual(['alice', 'bob']);
+    expect(post.allowedMentions.users).toEqual([]);
   });
 });
 

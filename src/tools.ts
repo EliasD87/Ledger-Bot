@@ -1,3 +1,4 @@
+import { type AnalystCall, type AnalystStore, shortQuote, targetText } from './analysts/store.js';
 import type { Lang } from './lang.js';
 import type { MarketContext } from './analysis/context.js';
 import type { WebNews } from './news/webNews.js';
@@ -363,6 +364,28 @@ const PAGE_TOOLS: Tool[] = [
   },
 ];
 
+const ANALYST_TOOLS: Tool[] = [
+  {
+    type: 'function',
+    function: {
+      name: 'analyst_views',
+      description:
+        'What newsletter writers and podcast hosts (tracked by DripStack) said about a stock, ETF or coin: how many covered it, how they split ' +
+        '(each one counted once, by their latest call), and the most confident calls with writer, newsletter, date, a short quote and any target. ' +
+        'Leave out asset for what analysts talked about most lately. Use for "what are analysts / newsletters / the pros saying about X?", ' +
+        '"is anyone bearish on PLTR?", "what are newsletters talking about this week?". Oil, gold, silver, the S&P 500 and the VIX count through their ETFs and futures; yields are not covered.',
+      parameters: {
+        type: 'object',
+        properties: {
+          asset: { type: 'string', description: 'Ticker or name, e.g. NVDA, "robinhood", BTC. Omit for what analysts talk about most.' },
+          days: { type: 'number', description: 'Look-back in days: default 30 for one asset, 7 for the most-talked-about list; up to 90.' },
+        },
+        additionalProperties: false,
+      },
+    },
+  },
+];
+
 /** Data the stress-test card already shows, so it isn't fetched again for the line above the card. */
 const CARD_COVERS = new Set(['analyze', 'get_price', 'get_etf_flows', 'get_macro', 'get_news', 'get_market', 'get_recap', 'get_treasury_buys']);
 
@@ -396,6 +419,8 @@ export interface ToolKitDeps {
   news?: WebNews;
   /** Event mapping and the macro backdrop. */
   context?: MarketContext;
+  /** Analyst calls synced from DripStack (read only). */
+  analysts?: AnalystStore;
   now?: () => number;
 }
 
@@ -415,6 +440,7 @@ export class ToolKit {
       ...(alerts ? ALERT_TOOLS : []),
       ...(memory ? MEMORY_TOOLS : []),
       ...(myPage ? PAGE_TOOLS : []),
+      ...(this.deps.analysts ? ANALYST_TOOLS : []),
     ];
   }
 
@@ -437,6 +463,7 @@ export class ToolKit {
       ...(alerts ? alertHandlers({ store: alerts, feed, desk: desk ?? null }, ctx, now) : {}),
       ...(memory ? memoryHandlers(memory, ctx) : {}),
       ...(myPage ? { get_my_page: async () => pageForModel(await myPage(ctx.guildId, ctx.userId)) } : {}),
+      ...(this.deps.analysts ? { analyst_views: (args: Record<string, unknown>) => analystViewsForModel(this.deps.analysts!, args, quotes, now()) } : {}),
       stress_test: async (args) => {
         if (draft) return { error: 'One stress test per message; this one already has a card.' };
         const text = typeof args.take === 'string' ? args.take.trim() : '';
@@ -629,6 +656,65 @@ function progress(t: Thesis, value: number) {
     ...(t.spec.kind !== 'flows' && t.startValue ? { change_since_logged: signedPct(value / t.startValue - 1) } : {}),
     on_track: holding,
     checks_back: t.checkAt ? discordTime(t.checkAt, 'R') : null,
+  };
+}
+
+const ACTION_WORDS: Record<string, string> = {
+  NEW_POSITION: 'bought',
+  ADD: 'added',
+  HOLD: 'holds',
+  RECOMMENDATION: 'recommends',
+  REDUCE: 'trimmed',
+  EXIT: 'sold',
+  OPINION: 'view only',
+};
+
+/** An analyst view for the model: the split, then a few named calls. Read from the synced store only. */
+async function analystViewsForModel(store: AnalystStore, args: Record<string, unknown>, quotes: MarketQuotes | undefined, now: number) {
+  const raw = typeof args.asset === 'string' ? args.asset.trim().replace(/^\$/, '') : '';
+  const call = (c: AnalystCall) => ({
+    who: c.publication && c.publication !== c.author ? `${c.author} (${c.publication})` : c.author,
+    stance: c.sentiment.toLowerCase(),
+    did: ACTION_WORDS[c.action ?? ''] ?? 'view only',
+    conviction: (c.convictionLabel ?? 'unstated').replace('_', ' '),
+    date: utcLabel(c.publishedAt),
+    ...(shortQuote(c.quote) ? { quote: shortQuote(c.quote) } : {}),
+    ...(targetText(c.target) ? { target: targetText(c.target) } : {}),
+    ...(c.timeframe ? { timeframe: c.timeframe } : {}),
+    ...(c.source ? { newsletter: `https://${c.source}` } : {}),
+  });
+  if (!raw) {
+    const days = Math.min(90, Math.max(1, Math.round(typeof args.days === 'number' ? args.days : 7)));
+    const top = store.trending(days, now);
+    if (!top.length) return { note: `No analyst calls stored for the last ${days} days.` };
+    return {
+      window: `last ${days} days`,
+      most_talked_about: top.map((v) => ({ asset: v.name ? `${v.ticker} (${v.name})` : v.ticker, analysts: v.analysts, bullish: v.bullish, bearish: v.bearish, neutral: v.neutral })),
+      note: 'Each analyst counted once per asset, by their latest call. Source: DripStack.',
+    };
+  }
+  const days = Math.min(90, Math.max(1, Math.round(typeof args.days === 'number' ? args.days : 30)));
+  let ticker = raw.toUpperCase();
+  let v = store.view(ticker, days, now);
+  if (!v && quotes?.identify) {
+    // A name ("robinhood", "nvidia") becomes its ticker.
+    const asset = await quotes.identify(raw).catch(() => null);
+    if (asset) {
+      ticker = asset.symbol;
+      v = store.view(ticker, days, now);
+    }
+  }
+  if (!v) return { asset: ticker, note: `No newsletter or podcast analyst tracked by DripStack covered ${ticker} in the last ${days} days.` };
+  const pick = [...v.latest.filter((c) => c.sentiment === 'BULLISH').slice(0, 2), ...v.latest.filter((c) => c.sentiment === 'BEARISH').slice(0, 2)];
+  const calls = (pick.length ? pick : v.latest.slice(0, 3)).sort((a, b) => b.publishedAt - a.publishedAt);
+  return {
+    asset: v.name ? `${v.ticker} (${v.name})` : v.ticker,
+    window: `last ${days} days`,
+    analysts: v.analysts,
+    split_by_latest_call: { bullish: v.bullish, bearish: v.bearish, neutral: v.neutral },
+    total_calls: v.calls,
+    strongest_calls: calls.map(call),
+    note: 'Source: DripStack. Name the writer and newsletter; quote at most one short line; these are views, not advice.',
   };
 }
 

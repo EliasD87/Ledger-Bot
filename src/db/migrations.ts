@@ -301,4 +301,30 @@ export const migrations: string[] = [
     PRIMARY KEY (question_id, user_id)
   );
   `,
+  // 10: analyst calls from DripStack (newsletter writers and podcast hosts), synced on a schedule so chats
+  // read them from here and never call DripStack themselves.
+  `
+  CREATE TABLE analyst_calls (
+    key               TEXT PRIMARY KEY,     -- hash of when, who, what: the feed has no id of its own
+    day               TEXT NOT NULL,
+    ticker            TEXT NOT NULL,
+    kind              TEXT,                 -- EQUITY, ETF, CRYPTO, OTHER
+    name              TEXT,
+    author            TEXT NOT NULL,
+    publication       TEXT,
+    source            TEXT,                 -- the publication's host, e.g. zastocks.com
+    sentiment         TEXT NOT NULL,        -- BULLISH, BEARISH, NEUTRAL
+    action            TEXT,
+    conviction        INTEGER,
+    conviction_label  TEXT,
+    quote             TEXT,
+    timeframe         TEXT,
+    target            TEXT,                 -- JSON price target, if any
+    guest             INTEGER NOT NULL DEFAULT 0,
+    published_at      INTEGER NOT NULL,
+    fetched_at        INTEGER NOT NULL
+  );
+  CREATE INDEX analyst_calls_ticker ON analyst_calls (ticker, published_at);
+  CREATE INDEX analyst_calls_published ON analyst_calls (published_at);
+  `,
 ];

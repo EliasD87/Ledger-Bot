@@ -29,6 +29,8 @@ export interface Config {
   threadMaxMessages: number;
   /** Without a key, the tape (ETF flows, macro, headlines) and flow takes are off. */
   sosovalueApiKey: string | undefined;
+  /** DripStack: analyst calls from newsletters and podcasts. Optional. */
+  dripstackApiKey: string | undefined;
   priceFeedUrl: string;
   dbPath: string;
   logLevel: string;
@@ -62,6 +64,7 @@ export function loadConfig(env: Env = loadDotEnv()): Config {
     },
     threadMaxMessages: read.number('THREAD_MAX_MESSAGES', 12),
     sosovalueApiKey: read.optional('SOSOVALUE_API_KEY'),
+    dripstackApiKey: read.optional('DRIPSTACK_API_KEY'),
     priceFeedUrl: read.optional('PRICE_FEED_URL') ?? 'https://data-api.binance.vision',
     dbPath: read.optional('DB_PATH') ?? './data/ledger.db',
     logLevel: read.optional('LOG_LEVEL') ?? 'info',

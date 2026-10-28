@@ -57,6 +57,8 @@ const WORDS = {
     againstHeading: 'Against',
     kill: 'What would prove it wrong',
     history: 'History',
+    analysts: (days: number, parts: string) => `Newsletter analysts, last ${days} days · ${parts}`,
+    analystSplit: (ticker: string, bull: number, bear: number) => `${ticker}: ${bull} bullish, ${bear} bearish`,
     sides: (w: number, a: number) => `With **${w}** · Against **${a}**`,
     sideWith: 'with',
     sideAgainst: 'against',
@@ -118,6 +120,8 @@ const WORDS = {
     againstHeading: '反对',
     kill: '什么情况说明它错了',
     history: '历史',
+    analysts: (days: number, parts: string) => `通讯和播客分析师（近 ${days} 天）· ${parts}`,
+    analystSplit: (ticker: string, bull: number, bear: number) => `${ticker}：${bull} 看多，${bear} 看空`,
     sides: (w: number, a: number) => `支持 **${w}** · 反对 **${a}**`,
     sideWith: '支持',
     sideAgainst: '反对',
@@ -223,6 +227,9 @@ export function thesisContainer(t: Thesis, sides: Sides, opts: { chart?: boolean
     divider(),
     a.kill && `**${w.kill}:** ${a.kill}`,
     a.history && `**${w.history}:** ${a.history}`,
+    // Counted in code when it was tested: each analyst once, by their latest call.
+    !!t.analysis.analysts?.length &&
+      kicker(w.analysts(t.analysis.analysts[0]!.days, t.analysis.analysts.map((x) => w.analystSplit(x.ticker, x.bullish, x.bearish)).join(' · '))),
     `**${w.lean[a.lean]}**${a.verdict ? ` _${a.verdict}_` : ''}`,
     (t.status !== 'draft' || debate) && divider(),
     t.status !== 'draft' && w.sides(sides.with.length, sides.against.length),
@@ -264,12 +271,11 @@ export function verdictPost(v: Verdict, sides: Sides, opts: { chart?: boolean } 
         row(myPageButton(t.guildId)),
       ]),
     ],
-    // The author, and the challenger of a duel: both have a stake in the result.
-    { ping: [t.authorId, ...(challenger ? [challenger] : [])] },
+    // Named on the post, but nobody is notified: members look when they want to.
   );
 }
 
-/** A mid-take moment, posted as a reply to the thesis card. Pings the author only. */
+/** A mid-take moment, posted as a reply to the thesis card. Switched off for now; notifies nobody. */
 export function momentPost(t: Thesis, kind: MomentKind, value: number, now: number) {
   const w = wordsFor(t);
   const left = t.checkAt ? w.left(t.checkAt, now) : w.littleTime;
@@ -284,7 +290,7 @@ export function momentPost(t: Thesis, kind: MomentKind, value: number, now: numb
         row(button('progress', t.id, w.progress)),
       ]),
     ],
-    { ping: [t.authorId] },
+    // Unused while mid-take moments are off; never notifies anyone.
   );
 }
 

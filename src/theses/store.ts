@@ -1,3 +1,4 @@
+import type { AnalystSnapshot } from '../analysts/store.js';
 import type { Lang } from '../lang.js';
 import type { Fact } from '../analysis/evidence.js';
 import type { Db } from '../db/index.js';
@@ -18,6 +19,8 @@ export interface Analysis {
   baseRate?: number | null;
   /** The member's language: cards and charts for this take use it. */
   lang?: Lang;
+  /** How newsletter and podcast analysts split on the assets when it was tested. */
+  analysts?: AnalystSnapshot[];
 }
 
 export interface Thesis {

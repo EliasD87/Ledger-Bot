@@ -1,3 +1,4 @@
+import { type AnalystSnapshot, type AnalystStore, analystTickers, snapshotOf, targetText } from '../analysts/store.js';
 import type { MarketContext } from './context.js';
 import { type WebNews, newsQuery } from '../news/webNews.js';
 import { leadingFund, type Desk, ETF_ASSETS } from '../desk/desk.js';
@@ -37,6 +38,8 @@ export interface Evidence {
   sources: string[];
   /** The price histories behind it, for charts. Not stored with the thesis. */
   histories: History[];
+  /** How newsletter and podcast analysts split on each asset, when any covered it. */
+  analysts?: AnalystSnapshot[];
 }
 
 const pct = (x: number, digits = 1) => `${x >= 0 ? '+' : '−'}${Math.abs(x * 100).toFixed(digits)}%`;
@@ -44,6 +47,9 @@ const share = (x: number) => `${Math.round(x * 100)}%`;
 const ordinal = (n: number) => `${n}${n % 100 >= 11 && n % 100 <= 13 ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' } as Record<number, string>)[n % 10] ?? 'th'}`;
 /** Calendar days as daily bars: crypto trades every day, stocks about 252 days a year. */
 const bars = (days: number, tradingDaysOnly: boolean) => (tradingDaysOnly ? Math.max(1, Math.round((days * 252) / 365)) : days);
+const shortDay = (ms: number) => new Date(ms).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+/** How far back analyst calls count for a take. */
+const ANALYST_DAYS = 30;
 const month = (date: string) => new Date(`${date}T00:00:00Z`).toLocaleDateString('en-GB', { month: 'short', year: 'numeric', timeZone: 'UTC' });
 
 /**
@@ -53,7 +59,15 @@ const month = (date: string) => new Date(`${date}T00:00:00Z`).toLocaleDateString
  */
 export class EvidenceBuilder {
   constructor(
-    private readonly deps: { history: MarketHistory; desk: Desk | null; news?: WebNews; context?: MarketContext; now?: () => number },
+    private readonly deps: {
+      history: MarketHistory;
+      desk: Desk | null;
+      news?: WebNews;
+      context?: MarketContext;
+      /** Analyst calls synced from DripStack; read only, never fetched here. */
+      analysts?: AnalystStore;
+      now?: () => number;
+    },
   ) {}
 
   private get now(): number {
@@ -68,7 +82,8 @@ export class EvidenceBuilder {
     for (const h of histories) this.assetFacts(facts, h);
     if (histories.length === 2) this.pairFacts(facts, histories[0]!, histories[1]!);
     await this.contextFacts(facts, histories, 30);
-    return { facts: facts.all, start: null, measure: histories.map((h) => h.asset.symbol).join('/'), baseRate: null, analogs: null, sources: sourcesOf(histories, facts), histories };
+    const analysts = this.analystFacts(facts, histories);
+    return { facts: facts.all, start: null, measure: histories.map((h) => h.asset.symbol).join('/'), baseRate: null, analogs: null, sources: sourcesOf(histories, facts), histories, analysts };
   }
 
   /** Evidence for a specific take, including how often what it needs has happened before. */
@@ -114,7 +129,8 @@ export class EvidenceBuilder {
       }
     }
     await this.contextFacts(facts, histories, spec.horizonDays);
-    return { facts: facts.all, start, measure: measureLabel(spec), baseRate: rate, analogs: similar, sources: sourcesOf(histories, facts), histories };
+    const analysts = this.analystFacts(facts, histories);
+    return { facts: facts.all, start, measure: measureLabel(spec), baseRate: rate, analogs: similar, sources: sourcesOf(histories, facts), histories, analysts };
   }
 
   /**
@@ -197,6 +213,40 @@ export class EvidenceBuilder {
   }
 
   /** The backdrop: market context, ETF flows, macro inside the horizon, headlines. Stored data only. */
+  /**
+   * What newsletter and podcast analysts said about each asset over the last 30 days, from the synced store:
+   * how they split (each analyst once, by their latest call) and the most confident call on each side.
+   * Commodities and indexes count through the ETFs and futures analysts name; an asset nobody covered gets no fact at all.
+   */
+  private analystFacts(facts: FactList, histories: History[]): AnalystSnapshot[] | undefined {
+    const store = this.deps.analysts;
+    if (!store) return undefined;
+    const snapshots: AnalystSnapshot[] = [];
+    for (const h of histories) {
+      const v = store.view(h.asset.symbol, ANALYST_DAYS, this.now);
+      if (!v) continue;
+      snapshots.push(snapshotOf(v));
+      const proxies = analystTickers(v.ticker);
+      const s = proxies.length > 1 ? `${v.ticker} (counting ${proxies.slice(0, 2).join(' and ')})` : v.ticker;
+      facts.add(
+        v.analysts === 1
+          ? `Only 1 newsletter or podcast analyst covered ${s} in the last ${ANALYST_DAYS} days (DripStack), and that call was ${v.latest[0]!.sentiment.toLowerCase()}.`
+          : `Newsletter and podcast analysts (DripStack), last ${ANALYST_DAYS} days: ${v.analysts} covered ${s}; by each one's latest call, ${v.bullish} bullish, ${v.bearish} bearish, ${v.neutral} neutral.`,
+      );
+      for (const stance of ['BULLISH', 'BEARISH'] as const) {
+        const top = v.latest.find((c) => c.sentiment === stance);
+        if (!top || v.analysts === 1) continue;
+        const target = targetText(top.target);
+        facts.add(
+          `Most confident ${stance.toLowerCase()} call on ${s}: ${top.author}${top.publication && top.publication !== top.author ? ` (${top.publication})` : ''}, ` +
+            `${(top.convictionLabel ?? 'unstated').replace('_', ' ')} conviction, ${shortDay(top.publishedAt)}${target ? `, target ${target}` : ''}${top.timeframe ? `, timeframe "${top.timeframe}"` : ''}.`,
+        );
+      }
+      facts.sources.add('DripStack');
+    }
+    return snapshots.length ? snapshots : undefined;
+  }
+
   private async contextFacts(facts: FactList, histories: History[], horizonDays: number): Promise<void> {
     const main = histories[0]!.asset;
     const { desk } = this.deps;

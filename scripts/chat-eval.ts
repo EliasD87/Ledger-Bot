@@ -9,6 +9,9 @@
  * records start empty. Catch-up and recall read the scenario's `channelLog` instead of Discord.
  */
 import { MarketContext } from '../src/analysis/context.js';
+import { DripStack } from '../src/analysts/dripstack.js';
+import { AnalystRefresher } from '../src/analysts/refresher.js';
+import { AnalystStore } from '../src/analysts/store.js';
 import { WebNews } from '../src/news/webNews.js';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { AlertStore } from '../src/alerts/store.js';
@@ -81,7 +84,10 @@ const stocks = new StockQuotes(null);
 const history = new MarketHistory({ resolve: (asset) => crypto.resolve(asset), binance: feed });
 const news = new WebNews();
 const context = new MarketContext({ history, news });
-const evidence = new EvidenceBuilder({ history, desk, news, context });
+// Analyst calls: one sync up front (as the server's background sync would have done), then read from the store.
+const analysts = config.dripstackApiKey ? new AnalystStore(db) : undefined;
+if (analysts) await new AnalystRefresher({ client: new DripStack({ apiKey: config.dripstackApiKey! }), store: analysts }).tick();
+const evidence = new EvidenceBuilder({ history, desk, news, context, analysts });
 const measure = new Measure({ history, crypto, stocks, desk });
 const charts = new Charts({ history, desk });
 
@@ -133,6 +139,7 @@ for (const s of scenarios) {
     charts,
     news,
     context,
+    analysts,
   });
   const thread: ThreadMessage[] = [];
   const turns = [];

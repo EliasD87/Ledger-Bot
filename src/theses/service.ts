@@ -60,6 +60,7 @@ function analysisOf(test: StressTest): Analysis {
     sources: test.evidence.sources,
     baseRate: test.evidence.baseRate?.rate ?? null,
     lang: test.lang,
+    ...(test.evidence.analysts ? { analysts: test.evidence.analysts } : {}),
   };
 }
 

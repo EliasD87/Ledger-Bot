@@ -31,6 +31,7 @@ export const TOOL_PILLAR: Record<string, Pillar> = {
   catch_up: 'memory',
   recall: 'memory',
   get_my_page: 'page',
+  analyst_views: 'tape',
 };
 
 /** Which pillar each slash command belongs to. */

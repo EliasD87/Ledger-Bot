@@ -1,4 +1,3 @@
-import { MomentWatcher } from './theses/moments.js';
 import { MarketContext } from './analysis/context.js';
 import { WebNews } from './news/webNews.js';
 import { createHash } from 'node:crypto';
@@ -20,7 +19,7 @@ import { createClient, inviteLink } from './discord/client.js';
 import { commandData, handleInteraction } from './discord/commands.js';
 import { Conversation } from './discord/conversation.js';
 import { ServerMemory } from './discord/memory.js';
-import { announceMoments, announceVerdicts, expireDrafts } from './discord/thesisButtons.js';
+import { announceVerdicts, expireDrafts } from './discord/thesisButtons.js';
 import { DeepSeek } from './llm/deepseek.js';
 import { RateLimiter, Spend } from './llm/guards.js';
 import { log, setLogLevel } from './log.js';
@@ -34,6 +33,9 @@ import { Measure, ThesisSettler } from './theses/measure.js';
 import type { TakeDeps } from './theses/service.js';
 import { ThesisStore } from './theses/store.js';
 import { ToolKit } from './tools.js';
+import { DripStack } from './analysts/dripstack.js';
+import { AnalystRefresher } from './analysts/refresher.js';
+import { AnalystStore } from './analysts/store.js';
 
 const config = loadConfig();
 setLogLevel(config.logLevel);
@@ -62,13 +64,16 @@ const stocks = new StockQuotes(desk);
 const history = new MarketHistory({ resolve: (asset) => crypto.resolve(asset), binance: feed });
 const news = new WebNews();
 const context = new MarketContext({ history, news });
-const evidence = new EvidenceBuilder({ history, desk, news, context });
+// Analyst calls from newsletters and podcasts: only the background sync talks to DripStack; everything else reads the store.
+const analysts = config.dripstackApiKey ? new AnalystStore(db) : undefined;
+const analystSync = analysts ? new AnalystRefresher({ client: new DripStack({ apiKey: config.dripstackApiKey! }), store: analysts }) : null;
+if (!analysts) log.warn('No DRIPSTACK_API_KEY: analyst views are off.');
+const evidence = new EvidenceBuilder({ history, desk, news, context, analysts });
 const renderer = new ChartRenderer();
 const charts = new Charts({ history, desk, renderer });
 const theses = new ThesisStore(db);
 const measure = new Measure({ history, crypto, stocks, desk });
 const settler = new ThesisSettler({ store: theses, measure });
-const moments = new MomentWatcher({ store: theses, measure, history });
 const take: TakeDeps = { llm, evidence, theses, spend, charts };
 
 const conversation = new Conversation({
@@ -89,6 +94,7 @@ const conversation = new Conversation({
     charts,
     news,
     context,
+    analysts,
   }),
   members,
   theses,
@@ -125,6 +131,7 @@ async function start(readContent: boolean): Promise<void> {
       );
     }
     void refreshTape();
+    void analystSync?.tick();
     await Promise.all(c.guilds.cache.map((guild) => registerCommands(guild)));
   });
   client.on(Events.GuildCreate, (guild) => void registerCommands(guild));
@@ -186,11 +193,10 @@ async function tick(): Promise<void> {
   for (const v of settled) log.info(`Thesis #${v.thesis.id} checked back: ${v.held ? 'aged well' : 'aged badly'}`);
   for (const t of voided) log.warn(`Thesis #${t.id} voided: no data at the check-back`);
   await announceVerdicts(client, theses, settled, charts);
-  // Between logging and check-back: target reached, given back, under pressure (checked every 10 minutes).
-  await announceMoments(client, await moments.tick().catch((err) => (log.warn('Moment check failed', err), [])));
   await expireDrafts(client, theses, Date.now());
   await alertWatcher?.tick();
   void refreshTape().catch((err) => log.warn('Tape refresh failed', err));
+  void analystSync?.tick();
   if (Date.now() - lastPrune > 60 * 60 * 1000) {
     lastPrune = Date.now();
     archive.prune(lastPrune);
