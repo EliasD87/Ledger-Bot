@@ -24,6 +24,9 @@ const HOUR = 60 * 60 * 1000;
 const ALIASES: Record<string, string> = {
   BITCOIN: 'BTC', XBT: 'BTC', ETHEREUM: 'ETH', SOLANA: 'SOL', RIPPLE: 'XRP', CARDANO: 'ADA', POLKADOT: 'DOT', AVALANCHE: 'AVAX',
   CHAINLINK: 'LINK', LITECOIN: 'LTC', TON: 'GRAM', TONCOIN: 'GRAM', SHIBA: 'SHIB', DOGE: 'DOGE', MICROSTRATEGY: 'MSTR', SAYLOR: 'MSTR',
+  HYPERLIQUID: 'HYPE', DOGECOIN: 'DOGE', BINANCE: 'BNB', TRON: 'TRX', STELLAR: 'XLM', MONERO: 'XMR', ZCASH: 'ZEC', UNISWAP: 'UNI',
+  ARBITRUM: 'ARB', OPTIMISM: 'OP', APTOS: 'APT', POLYGON: 'POL', ETHENA: 'ENA', CELESTIA: 'TIA', INJECTIVE: 'INJ', WORLDCOIN: 'WLD',
+  JUPITER: 'JUP', PUDGY: 'PENGU', PUMPFUN: 'PUMP',
 };
 
 /** Turns "$btc", "eth/usdt" or "Solana" into a base ticker like "BTC", or null if it can't be one. */

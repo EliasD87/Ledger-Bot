@@ -626,10 +626,30 @@ export class ToolKit {
         } catch {
           return JSON.stringify({ error: 'Arguments were not valid JSON.' });
         }
-        return JSON.stringify(await handler(args));
+        return JSON.stringify(withRetryHint(await handler(args)));
       },
     };
   }
+}
+
+/** Results that mean "no such asset", as opposed to a feed being down. */
+const NOT_FOUND = /no price history|couldn't find|not found|no live|not a binance|no newsletter|no market/i;
+
+/**
+ * A second chance for names: when a lookup finds nothing, the model is told to try again with the ticker it
+ * knows (Hyperliquid is HYPE) or its best reading of a typo, and to ask the member only if it can't tell.
+ */
+function withRetryHint(result: unknown): unknown {
+  if (!result || typeof result !== 'object' || Array.isArray(result)) return result;
+  const r = result as Record<string, unknown>;
+  const miss = [r.error, r.not_found, r.note].some((v) => typeof v === 'string' && NOT_FOUND.test(v));
+  return miss
+    ? {
+        ...r,
+        retry:
+          'If the member meant a coin or stock you know by another name, or misspelled it (Hyperliquid or "hyperliwui" is HYPE, Chainlink is LINK), call this tool again now with the ticker. Only if you cannot tell which asset they mean, ask them.',
+      }
+    : result;
 }
 
 function thesisForModel(t: Thesis, members: Members) {

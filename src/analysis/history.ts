@@ -1,3 +1,4 @@
+import { SoDex } from '../calls/sodex.js';
 import { type BinanceFeed, normalizeAsset } from '../calls/prices.js';
 import { log } from '../log.js';
 import { commodity, yahooSymbol } from './commodities.js';
@@ -66,9 +67,46 @@ export class MarketHistory {
       const pair = await this.deps.resolve(found.symbol).catch(() => null);
       if (pair) return { symbol: found.symbol, kind: 'crypto', pair };
     }
+    if (found?.kind === 'stock' && hint !== 'crypto') return found;
+    // A coin by its name ("hyperliquid", "pudgy penguins"): Yahoo doesn't know most of them.
+    if (hint !== 'stock') {
+      const coin = await this.coinByName(typed);
+      if (coin) {
+        const pair = await this.deps.resolve(coin).catch(() => null);
+        // Not on Binance: Bybit's daily history uses the same pair name.
+        return { symbol: coin, kind: 'crypto', pair: pair ?? `${coin}USDT` };
+      }
+    }
     if (hint === 'crypto') return null;
-    if (found?.kind === 'stock') return found;
-    return symbol ? { symbol, kind: 'stock' } : null;
+    // Only something shaped like a ticker is tried as a stock; a name nothing matched is nothing.
+    return symbol && symbol.length <= 5 ? { symbol, kind: 'stock' } : null;
+  }
+
+  private readonly coinNames = new Map<string, { symbol: string | null; at: number }>();
+
+  /**
+   * A coin's ticker from its name, via CoinGecko's free search; cached for a day. An exact name or ticker
+   * match wins ("ethena" is ENA, not the USDe stablecoin listed first); otherwise the top result, if it's a
+   * coin with a real market cap rank.
+   */
+  private async coinByName(query: string): Promise<string | null> {
+    const key = query.toLowerCase();
+    const cached = this.coinNames.get(key);
+    if (cached && this.now - cached.at < DAY) return cached.symbol;
+    let symbol: string | null = null;
+    try {
+      const body = (await this.getJson(`https://api.coingecko.com/api/v3/search?query=${encodeURIComponent(query)}`)) as {
+        coins?: { symbol?: string; name?: string; market_cap_rank?: number | null }[];
+      };
+      const coins = (body.coins ?? []).filter((c) => c.symbol && /^[A-Za-z0-9]{2,12}$/.test(c.symbol));
+      const exact = coins.find((c) => c.name?.toLowerCase() === key || c.symbol!.toLowerCase() === key);
+      const top = coins[0] && (coins[0].market_cap_rank ?? Infinity) <= 500 ? coins[0] : undefined;
+      symbol = (exact ?? top)?.symbol?.toUpperCase() ?? null;
+    } catch {
+      return null; // not cached: try again next time
+    }
+    this.coinNames.set(key, { symbol, at: this.now });
+    return symbol;
   }
 
   private readonly lookups = new Map<string, { asset: Asset | null; at: number }>();
@@ -105,7 +143,10 @@ export class MarketHistory {
     const key = `${asset.kind}:${asset.symbol}`;
     const cached = this.cache.get(key);
     if (cached && this.now - cached.at < 30 * MINUTE) return cached.history;
-    const sources = asset.kind === 'crypto' ? [() => this.binance(asset), () => this.bybit(asset)] : [() => this.yahoo(asset), () => this.nasdaq(asset)];
+    const sources =
+      asset.kind === 'crypto'
+        ? [() => this.binance(asset), () => this.bybit(asset), () => this.fromSodex(asset)]
+        : [() => this.yahoo(asset), () => this.nasdaq(asset)];
     let best: History | null = null;
     for (const source of sources) {
       try {
@@ -175,6 +216,15 @@ export class MarketHistory {
   private async binance(asset: Asset): Promise<History> {
     const candles = await this.deps.binance.candles(asset.pair!, '1d', { limit: 1000 });
     return { asset, closes: candles.map((c) => ({ date: isoDay(c.openTime), close: c.close })), source: 'Binance' };
+  }
+
+  private sodexSource?: SoDex;
+
+  /** SoDEX's daily candles: the last layer, for coins neither Binance nor Bybit has. */
+  private async fromSodex(asset: Asset): Promise<History | null> {
+    this.sodexSource ??= new SoDex({ fetchImpl: this.deps.fetchImpl });
+    const closes = await this.sodexSource.daily(asset.symbol);
+    return closes ? { asset, closes, source: 'SoDEX' } : null;
   }
 
   private async bybit(asset: Asset): Promise<History> {

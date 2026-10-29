@@ -1,6 +1,7 @@
 import { yahooSymbol } from './analysis/commodities.js';
 import { type BinanceFeed, type CryptoStats, normalizeAsset } from './calls/prices.js';
 import { type StoredDesk, usMarketOpen } from './desk/tape.js';
+import { SoDex } from './calls/sodex.js';
 import { log } from './log.js';
 import type { StockQuote } from './sosovalue.js';
 
@@ -19,14 +20,18 @@ const num = (v: unknown): number | null => {
 };
 
 /**
- * Crypto prices with backups: Binance first, then OKX, then Bybit, so one exchange's outage or block
- * never leaves members without a price.
+ * Crypto prices with backups: Binance first, then OKX, then Bybit, then SoDEX, so one exchange's outage
+ * or block (or a coin it doesn't list) never leaves members without a price.
  */
 export class CryptoQuotes {
+  private readonly sodex: SoDex;
+
   constructor(
     private readonly binance: Pick<BinanceFeed, 'resolve' | 'stats24h'>,
     private readonly fetchImpl: typeof fetch = fetch,
-  ) {}
+  ) {
+    this.sodex = new SoDex({ fetchImpl });
+  }
 
   /** "BTCUSDT" for BTC. If Binance can't be asked, assume the usual USDT pair and let the backups answer. */
   async resolve(asset: string): Promise<string | null> {
@@ -39,14 +44,21 @@ export class CryptoQuotes {
   }
 
   async stats24h(symbols: string[]): Promise<Record<string, CryptoStats>> {
-    try {
-      return await this.binance.stats24h(symbols);
-    } catch (err) {
-      log.warn('Binance 24h prices failed; trying OKX and Bybit', err);
+    // Binance answers for the coins it lists; a coin it doesn't list makes it refuse the whole batch,
+    // so those are asked on their own.
+    const listed = (await Promise.all(symbols.map(async (s) => ((await this.binance.resolve(s).catch(() => s)) ? s : null)))).filter((s): s is string => !!s);
+    let out: Record<string, CryptoStats> = {};
+    if (listed.length) {
+      try {
+        out = { ...(await this.binance.stats24h(listed)) };
+      } catch (err) {
+        log.warn('Binance 24h prices failed; trying OKX and Bybit', err);
+      }
     }
-    const out: Record<string, CryptoStats> = {};
-    for (const symbol of symbols) {
-      const stats = (await this.okx(symbol).catch(() => null)) ?? (await this.bybit(symbol).catch(() => null));
+    // Whatever Binance didn't answer: OKX, then Bybit, then SoDEX, one coin at a time.
+    for (const symbol of symbols.filter((s) => !out[s])) {
+      const stats =
+        (await this.okx(symbol).catch(() => null)) ?? (await this.bybit(symbol).catch(() => null)) ?? (await this.sodex.stats(symbol).catch(() => null));
       if (stats) out[symbol] = stats;
     }
     if (!Object.keys(out).length) throw new Error('No crypto price source answered');
