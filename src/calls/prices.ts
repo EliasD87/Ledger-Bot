@@ -16,6 +16,8 @@ export interface CryptoStats {
   volumeUsd: number;
   /** Where the numbers came from when it wasn't Binance. */
   source?: string;
+  /** Only `price` is real (SoDEX): its change, range and volume are one venue's, so they aren't used. */
+  priceOnly?: boolean;
 }
 
 const HOUR = 60 * 60 * 1000;

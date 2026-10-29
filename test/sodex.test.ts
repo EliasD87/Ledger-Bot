@@ -27,7 +27,9 @@ function sodexOnly() {
 describe('SoDEX layer', () => {
   it('finds perps first, scales 1000x markets, then spot', async () => {
     const s = new SoDex({ fetchImpl: sodexOnly() });
-    expect(await s.stats('HYPEUSDT')).toMatchObject({ price: 94, source: 'SoDEX', fundingRate: 0.0000125, openInterestUsd: 188_000 });
+    const hype = await s.stats('HYPEUSDT');
+    expect(hype).toMatchObject({ price: 94, source: 'SoDEX', priceOnly: true });
+    expect(hype).not.toHaveProperty('fundingRate'); // SoDEX's own market numbers aren't used
     expect((await s.stats('PEPE'))!.price).toBeCloseTo(0.000005, 12);
     expect(await s.stats('LINK')).toMatchObject({ price: 12, source: 'SoDEX' });
     expect(await s.stats('NOPE')).toBeNull();
@@ -89,5 +91,21 @@ describe('names', () => {
     const out = JSON.parse(await kit.session({ guildId: 'g', channelId: 'c', userId: 'u' }).run({ id: '1', name: 'get_price', arguments: '{"symbols":["hyperliwui"]}' }));
     expect(out.not_found).toMatch(/HYPERLIWUI/);
     expect(out.retry).toMatch(/call this tool again now with the ticker/);
+  });
+});
+
+describe('price tool with a SoDEX-only coin', () => {
+  it('shows the price alone, without SoDEX change, range or volume', async () => {
+    const kit = new ToolKit({
+      quotes: {
+        crypto: { resolve: async () => null, stats24h: async () => ({ MONUSDT: { price: 0.0213, change: Number.NaN, high: 0.0213, low: 0.0213, volumeUsd: 0, source: 'SoDEX', priceOnly: true } }) },
+        stocks: null,
+        identify: async () => ({ symbol: 'MON', kind: 'crypto' as const, pair: 'MONUSDT' }),
+      },
+    } as never);
+    const out = JSON.parse(await kit.session({ guildId: 'g', channelId: 'c', userId: 'u' }).run({ id: '1', name: 'get_price', arguments: '{"symbols":["monad"]}' }));
+    expect(out.prices[0]).toMatchObject({ ticker: 'MON', price: '0.0213', source: 'SoDEX' });
+    expect(out.prices[0]).not.toHaveProperty('change_24h');
+    expect(out.prices[0]).not.toHaveProperty('volume_24h');
   });
 });

@@ -812,7 +812,16 @@ async function priceForModel(quotes: MarketQuotes, args: Record<string, unknown>
   for (const s of symbols) {
     const c = crypto.has(s) ? cryptoStats?.[crypto.get(s)!] : undefined;
     const q = stockQuotes?.[s];
-    if (c) {
+    if (c?.priceOnly) {
+      prices.push({
+        ticker: s,
+        ...(askedAs.has(s) ? { asked_as: askedAs.get(s) } : {}),
+        market: 'crypto',
+        price: formatPrice(c.price),
+        source: c.source,
+        note: 'Only the price is available for this coin: no 24h change, range or volume.',
+      });
+    } else if (c) {
       prices.push({
         ticker: s,
         ...(askedAs.has(s) ? { asked_as: askedAs.get(s) } : {}),

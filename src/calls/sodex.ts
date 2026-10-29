@@ -4,13 +4,6 @@ import type { CryptoStats } from './prices.js';
 interface SoDexTicker {
   symbol: string;
   lastPx: string;
-  openPx: string;
-  highPx: string;
-  lowPx: string;
-  quoteVolume: string;
-  fundingRate?: string;
-  openInterest?: string;
-  markPrice?: string;
 }
 
 type Kind = 'perps' | 'spot';
@@ -20,9 +13,9 @@ const MINUTE = 60_000;
 
 /**
  * SoDEX's public market data (no key): one more price layer after Binance, OKX and Bybit, and one more
- * source of daily history. Its perps list covers coins the big exchanges don't, plus funding and open
- * interest. One request returns every market's 24h numbers, kept for a minute, so a busy chat costs a
- * request a minute at most (SoDEX allows 1,200 weight a minute per IP).
+ * source of daily closes. Only prices are taken: its 24h change, range, volume, funding and open interest
+ * describe SoDEX's own market, not the coin's. One request returns every market's ticker, kept for a
+ * minute, so a busy chat costs a request a minute at most (SoDEX allows 1,200 weight a minute per IP).
  */
 export class SoDex {
   private readonly tickers = new Map<Kind, { rows: SoDexTicker[]; at: number }>();
@@ -47,26 +40,14 @@ export class SoDex {
     return ticker ? { kind: 'spot', symbol: ticker.symbol, scale: 1, ticker } : null;
   }
 
-  /** 24h price numbers, plus funding and open interest for perps. Null if SoDEX doesn't list it. */
-  async stats(asset: string): Promise<(CryptoStats & { fundingRate?: number; openInterestUsd?: number }) | null> {
+  /** The last price, and nothing else (see the class note). Null if SoDEX doesn't list it. */
+  async stats(asset: string): Promise<CryptoStats | null> {
     const m = await this.market(asset);
     if (!m) return null;
-    const t = m.ticker;
-    const price = Number(t.lastPx) / m.scale;
-    const open = Number(t.openPx) / m.scale;
-    if (!Number.isFinite(price) || !(open > 0)) return null;
-    const funding = Number(t.fundingRate);
-    const oi = Number(t.openInterest) * (Number(t.markPrice) || Number(t.lastPx));
-    return {
-      price,
-      change: price / open - 1,
-      high: Number(t.highPx) / m.scale || price,
-      low: Number(t.lowPx) / m.scale || price,
-      volumeUsd: Number(t.quoteVolume) || 0,
-      source: 'SoDEX',
-      ...(m.kind === 'perps' && Number.isFinite(funding) ? { fundingRate: funding } : {}),
-      ...(m.kind === 'perps' && Number.isFinite(oi) && oi > 0 ? { openInterestUsd: oi } : {}),
-    };
+    const price = Number(m.ticker.lastPx) / m.scale;
+    if (!Number.isFinite(price) || price <= 0) return null;
+    // The other fields are placeholders that nothing reads: priceOnly says so.
+    return { price, change: Number.NaN, high: price, low: price, volumeUsd: 0, source: 'SoDEX', priceOnly: true };
   }
 
   /** Daily closes, oldest first (up to about four years). Null if SoDEX doesn't list it. */
