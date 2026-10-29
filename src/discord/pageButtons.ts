@@ -1,3 +1,4 @@
+import { overBudget } from '../llm/guards.js';
 import type { Charts } from '../charts/maker.js';
 import { type ButtonInteraction, type ChannelSelectMenuInteraction, type ChatInputCommandInteraction, MessageFlags } from 'discord.js';
 import type { Config } from '../config.js';
@@ -72,7 +73,7 @@ export async function handlePageInteraction(interaction: ButtonInteraction | Cha
 
   if (parsed.action === 'catchup' && interaction.isChannelSelectMenu() && interaction.inGuild()) {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-    if (deps.spend.today() >= deps.config.guards.dailyBudgetUsd) {
+    if (overBudget(deps.spend.today(), deps.config.guards.dailyBudgetUsd)) {
       await interaction.editReply("That's it for today: my daily budget is spent. Try again after 00:00 UTC.");
       return;
     }

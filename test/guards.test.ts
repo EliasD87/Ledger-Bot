@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { openDb } from '../src/db/index.js';
 import { costOf } from '../src/llm/deepseek.js';
-import { RateLimiter, Spend, startOfUtcDay } from '../src/llm/guards.js';
+import { RateLimiter, Spend, overBudget, startOfUtcDay } from '../src/llm/guards.js';
 import { Metrics, ReplyIndex } from '../src/metrics.js';
 
 const MIN = 60_000;
@@ -105,5 +105,13 @@ describe('ReplyIndex', () => {
     replies.remember('bot1', 'root1', 'chan');
     expect(replies.rootOf('bot1')).toBe('root1');
     expect(replies.rootOf('nope')).toBeUndefined();
+  });
+});
+
+describe('daily cap', () => {
+  it('is off at 0, and stops replies once reached otherwise', () => {
+    expect(overBudget(500, 0)).toBe(false);
+    expect(overBudget(1.99, 2)).toBe(false);
+    expect(overBudget(2, 2)).toBe(true);
   });
 });

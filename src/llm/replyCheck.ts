@@ -12,6 +12,9 @@ const KNOWLEDGE_UNIT = /^\s*(?:blocks?|coins?|tokens?|million|billion|years?|mon
 /** Betting words, and a rating followed by signed points ("rated 13% … +87"): a betting slip either way. */
 /** Talking about the machinery: "the tool won't tell me", "my tools", "the tool result". */
 const TOOL_TALK = /\b(the|my|this|that) tools?\b|\btool (result|call|output)s?\b/i;
+/** Gendered pronouns for people. Quoted text (a headline, an analyst's words) is left alone. */
+const PRONOUN = /\b(he|she|him|his|hers|herself|himself)\b|他|她/i;
+const QUOTED = /["“”「」][^"“”「」]*["“”「」]/g;
 
 export const BETTING = /\b(payouts?|odds|bets?|betting|wager(?:s|ed)?|stakes?|staked|jackpot|long ?shots?)\b/i;
 const RATING_THEN_POINTS = /\d{1,2}(?:\.\d+)?%[^\n]{0,60}?(?<![\w.$])[+−]\d{1,3}(?![\d.,%])/;
@@ -83,6 +86,7 @@ export function replyProblems(reply: string, evidence: { request: string; toolsU
   }
   const word = BETTING.exec(reply)?.[0];
   if (word) problems.push(`Don't use the word "${word}", not even to deny it. Takes are a public record; nothing goes in or out.`);
+  if (PRONOUN.test(reply.replace(QUOTED, ''))) problems.push('Never guess anyone\'s gender: no he, she, him or his (in Chinese, no 他 or 她). Use their name or "they".');
   if (TOOL_TALK.test(reply)) problems.push("Don't mention tools or tool results; say what you can and can't see in plain words (\"I can't see the current rate\").");
   if (RATING_THEN_POINTS.test(reply)) problems.push('Never put a rating next to points ("13%… +87"). Give the rating alone; points live on the member\'s own page.');
   return problems;

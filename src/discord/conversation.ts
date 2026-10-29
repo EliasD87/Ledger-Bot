@@ -2,7 +2,7 @@ import { type Lang, langOf } from '../lang.js';
 import { ComponentType, type Message, MessageReferenceType } from 'discord.js';
 import type { Config } from '../config.js';
 import type { ChatMessage, ChatModel, Usage } from '../llm/deepseek.js';
-import type { RateLimiter, Spend } from '../llm/guards.js';
+import { type RateLimiter, type Spend, overBudget } from '../llm/guards.js';
 import { answerChecked } from '../llm/replyCheck.js';
 import { log } from '../log.js';
 import type { Members } from '../members.js';
@@ -87,7 +87,7 @@ export class Conversation {
     }
     limiter.hit(message.author.id);
 
-    if (spend.today() >= config.guards.dailyBudgetUsd) {
+    if (overBudget(spend.today(), config.guards.dailyBudgetUsd)) {
       metrics.record({ ...base, type: 'limited', meta: { reason: 'budget' } });
       await message.reply(LINES.budgetSpent);
       return;

@@ -37,6 +37,12 @@ describe('replyProblems', () => {
     expect(check('Set: BTC above 83,000, DM on the cross.', { request: 'Elias: set a new one at 83k', sources: ['Elias: set a new one at 83k'] })[0]).toMatch(/set_alert/);
   });
 
+  it('flags gendered pronouns, but not inside quotes', () => {
+    expect(replyProblems('If Elias wants a real test, he can bring a view.', { request: '', toolsUsed: [], sources: [] }).some((p) => p.includes('gender'))).toBe(true);
+    expect(replyProblems('James Check，他在价格跌到 79k 时仍看多。', { request: '', toolsUsed: [], sources: [] }).some((p) => p.includes('gender'))).toBe(true);
+    expect(replyProblems('Reuters: "he said rates stay high". Elias, what do you make of it?', { request: '', toolsUsed: [], sources: [] }).some((p) => p.includes('gender'))).toBe(false);
+  });
+
   it('flags betting words, denials included, and a rating next to points', () => {
     expect(check('No payouts here.')[0]).toMatch(/payouts/);
     expect(check('A call rated 13% that lands scores +87 points.')[0]).toMatch(/rating next to points/);

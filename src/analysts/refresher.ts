@@ -36,7 +36,10 @@ export class AnalystRefresher {
         this.lastPrune = now;
         store.prune(now);
       }
-      if (added) log.debug(`Analyst calls: ${added} new (from ${from})`);
+      // The first load is worth seeing in the log; later syncs only when something failed.
+      const message = `Analyst calls synced from ${from}: ${added} new, ${store.status().calls} stored`;
+      if (newest === null) log.info(message);
+      else log.debug(message);
       return added;
     } catch (err) {
       log.warn('Analyst sync failed', err);

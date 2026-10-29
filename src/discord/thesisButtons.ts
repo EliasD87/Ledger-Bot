@@ -1,3 +1,4 @@
+import { overBudget as budgetSpent } from '../llm/guards.js';
 import { type ButtonInteraction, ButtonBuilder, ButtonStyle, type Client, MessageFlags } from 'discord.js';
 import { CHART_NAME, type ChartFile, type Charts } from '../charts/maker.js';
 import type { Config } from '../config.js';
@@ -66,7 +67,7 @@ export async function handleThesisButton(interaction: ButtonInteraction, deps: T
   const isAuthor = interaction.user.id === t.authorId;
   // The card rebuilt in place, its chart re-attached.
   const refresh = () => rebuilding(interaction.message, CHART_NAME, (chart) => thesisCard(theses.get(t.id)!, theses.sides(t.id), { chart }));
-  const overBudget = () => !!deps.config && !!deps.take && deps.take.spend.today() >= deps.config.guards.dailyBudgetUsd;
+  const overBudget = () => !!deps.config && !!deps.take && budgetSpent(deps.take.spend.today(), deps.config.guards.dailyBudgetUsd);
 
   switch (parsed.action) {
     case 'log': {

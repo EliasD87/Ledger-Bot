@@ -52,6 +52,11 @@ export class RateLimiter {
   }
 }
 
+/** Whether the day's DeepSeek cap is reached. A cap of 0 means no cap. */
+export function overBudget(spentToday: number, capUsd: number): boolean {
+  return capUsd > 0 && spentToday >= capUsd;
+}
+
 /** Records what each LLM call cost and answers "how much have we spent". */
 export class Spend {
   private readonly insert;

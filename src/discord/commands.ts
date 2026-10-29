@@ -14,7 +14,7 @@ import type { Config } from '../config.js';
 import { type Desk, ETF_ASSETS } from '../desk/desk.js';
 import { count } from '../format.js';
 import type { ChatModel } from '../llm/deepseek.js';
-import type { Spend } from '../llm/guards.js';
+import { type Spend, overBudget } from '../llm/guards.js';
 import { log } from '../log.js';
 import type { Members } from '../members.js';
 import { RETENTION_DAYS } from '../memory/archive.js';
@@ -190,7 +190,7 @@ export async function handleInteraction(interaction: Interaction, deps: CommandD
 
 /** /take: the same stress test as @Ledger, posted publicly with its Log it button. */
 async function take(interaction: ChatInputCommandInteraction<'cached'>, deps: CommandDeps): Promise<void> {
-  if (deps.spend.today() >= deps.config.guards.dailyBudgetUsd) {
+  if (overBudget(deps.spend.today(), deps.config.guards.dailyBudgetUsd)) {
     await interaction.reply({ flags: MessageFlags.Ephemeral, content: "That's it for today: my daily budget is spent. Try again after 00:00 UTC." });
     return;
   }
@@ -329,7 +329,7 @@ async function tape(interaction: ChatInputCommandInteraction<'cached'>, { desk, 
 /** /recall: a private summary of what people said about a topic, only from channels the member can read. */
 async function recall(interaction: ChatInputCommandInteraction<'cached'>, { memory, llm, spend, config }: CommandDeps): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-  if (spend.today() >= config.guards.dailyBudgetUsd) {
+  if (overBudget(spend.today(), config.guards.dailyBudgetUsd)) {
     await interaction.editReply("That's it for today: my daily budget is spent. Try again after 00:00 UTC.");
     return;
   }
@@ -403,7 +403,7 @@ async function stats(interaction: ChatInputCommandInteraction<'cached'>, { metri
       `**${h.weekActive} of ${members} members** used Ledger (${pct(h.weekActive, members)}) · returning (3+ of 8 days): **${h.returning}** · using 2+ parts (takes, tape, watchlist, memory): **${h.multiPillar}**`,
       `Takes stress-tested ${h.stressTests} · logged ${h.logged} · sides taken ${h.sides} · page opens ${h.pageOpens} · watches added ${h.watchAdds} · button taps ${h.buttons}`,
       `Chat: ${count(h.chatMessages, 'message')}, ${h.chatWithTools} with tools · 30-day actives ${h.monthActive} · DAU/MAU ${pct(h.avgDailyActive, h.monthActive)}`,
-      `DeepSeek: $${spend.since(now - 7 * DAY).toFixed(3)} this week (cap $${config.guards.dailyBudgetUsd.toFixed(2)}/day) · $${spend.since(0).toFixed(3)} all time` +
+      `DeepSeek: $${spend.since(now - 7 * DAY).toFixed(3)} this week (${config.guards.dailyBudgetUsd > 0 ? `cap $${config.guards.dailyBudgetUsd.toFixed(2)}/day` : 'no daily cap'}) · $${spend.since(0).toFixed(3)} all time` +
         (desk ? ` · SoSoValue: ${desk.requestsThisMonth.toLocaleString('en-US')} of 100,000 requests this month` : ''),
     ].join('\n'),
   });

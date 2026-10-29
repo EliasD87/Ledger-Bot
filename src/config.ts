@@ -58,7 +58,7 @@ export function loadConfig(env: Env = loadDotEnv()): Config {
       maxReplyTokens: read.number('LLM_MAX_REPLY_TOKENS', 700),
     },
     guards: {
-      dailyBudgetUsd: read.number('LLM_DAILY_BUDGET_USD', 2),
+      dailyBudgetUsd: read.number('LLM_DAILY_BUDGET_USD', 0),
       cooldownMs: read.number('USER_COOLDOWN_SECONDS', 0) * 1000,
       hourlyLimit: read.number('USER_HOURLY_LIMIT', 0),
     },

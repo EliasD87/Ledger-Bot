@@ -671,6 +671,10 @@ const ACTION_WORDS: Record<string, string> = {
 
 /** An analyst view for the model: the split, then a few named calls. Read from the synced store only. */
 async function analystViewsForModel(store: AnalystStore, args: Record<string, unknown>, quotes: MarketQuotes | undefined, now: number) {
+  // An empty store means the background sync hasn't loaded anything yet: that's not the same as nobody covering it.
+  if (store.status().calls === 0) {
+    return { not_loaded: 'Analyst data has not loaded yet on this server. Say that in one line; do not say nobody covered it, and do not guess why.' };
+  }
   const raw = typeof args.asset === 'string' ? args.asset.trim().replace(/^\$/, '') : '';
   const call = (c: AnalystCall) => ({
     who: c.publication && c.publication !== c.author ? `${c.author} (${c.publication})` : c.author,
