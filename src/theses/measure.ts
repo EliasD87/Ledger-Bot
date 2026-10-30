@@ -2,7 +2,7 @@ import type { MarketHistory } from '../analysis/history.js';
 import type { Desk } from '../desk/desk.js';
 import type { CryptoQuotes, StockQuotes } from '../quotes.js';
 import type { ThesisSpec } from './spec.js';
-import { held } from './spec.js';
+import { held, reached, touchLevel } from './spec.js';
 import type { Thesis, ThesisStore } from './store.js';
 
 const DAY = 86_400_000;
@@ -36,6 +36,13 @@ export class Measure {
     return b ? a / b : null;
   }
 
+  /** The highest high and lowest low of a take's asset between two moments (hourly candles), or null. */
+  async range(spec: ThesisSpec, from: number, to: number): Promise<{ high: number; low: number } | null> {
+    const asset = await this.deps.history.identify(spec.asset, spec.assetKind).catch(() => null);
+    if (!asset || typeof this.deps.history.range !== 'function') return null;
+    return this.deps.history.range(asset, from, to).catch(() => null);
+  }
+
   /** Summed net flows for sessions dated from `from` up to (not including) `until`, and the latest session seen. */
   async flows(asset: string, from: number, until: number): Promise<{ sum: number; latest: string } | null> {
     const report = await this.deps.desk?.flows(asset).catch(() => null);
@@ -63,9 +70,15 @@ export interface Verdict {
   held: boolean;
 }
 
-/** Settles theses whose check-back has come. Voids one if its data never shows up. */
+/**
+ * Settles theses. A take that counts on touch (a price target or a % move) is right the moment the price
+ * gets there inside its window: every 10 minutes the watcher reads the hourly highs and lows since its last
+ * look and the live price, and settles it as soon as the level is touched. Everything else, and a touch take
+ * that never got there, is settled at the check-back. Voids a take whose data never shows up.
+ */
 export class ThesisSettler {
   private running = false;
+  private lastWatch = 0;
 
   constructor(
     private readonly deps: { store: ThesisStore; measure: Measure; now?: () => number },
@@ -78,13 +91,26 @@ export class ThesisSettler {
     const voided: Thesis[] = [];
     try {
       const now = (this.deps.now ?? Date.now)();
+      if (now - this.lastWatch >= WATCH_EVERY) {
+        this.lastWatch = now;
+        settled.push(...(await this.watchTouches(now)));
+      }
       for (const t of this.deps.store.due(now)) {
+        // A touch take gets one last look at its whole window before it can age badly.
+        const level = t.startValue !== null && t.spec.kind !== 'flows' ? touchLevel(t.spec, t.startValue) : null;
+        if (level !== null) {
+          const best = await this.furthest(t, t.checkAt!, false);
+          if (best !== null && reached(t.spec, level, best)) {
+            if (this.deps.store.settle(t.id, best, true, now)) settled.push({ thesis: this.deps.store.get(t.id)!, endValue: best, held: true });
+            continue;
+          }
+        }
         const end = await this.deps.measure.atCheck(t, now).catch(() => null);
         if (end === null) {
           if (now > t.checkAt! + 5 * DAY && this.deps.store.void(t.id, 'no data at the check-back', now)) voided.push(t);
           continue;
         }
-        const ok = held(t.spec, t.startValue ?? 0, end);
+        const ok = level !== null ? false : held(t.spec, t.startValue ?? 0, end);
         if (this.deps.store.settle(t.id, end, ok, now)) settled.push({ thesis: this.deps.store.get(t.id)!, endValue: end, held: ok });
       }
       return { settled, voided };
@@ -92,4 +118,39 @@ export class ThesisSettler {
       this.running = false;
     }
   }
+
+  /** Open touch takes whose price got to their level since the last look: settled now, as aged well. */
+  private async watchTouches(now: number): Promise<Verdict[]> {
+    const out: Verdict[] = [];
+    for (const t of this.deps.store.allOpen()) {
+      if (t.startValue === null || t.startAt === null || t.spec.kind === 'flows') continue;
+      const level = touchLevel(t.spec, t.startValue);
+      if (level === null || (t.checkAt !== null && now >= t.checkAt)) continue;
+      const best = await this.furthest(t, now, true);
+      if (best !== null && reached(t.spec, level, best)) {
+        if (this.deps.store.settle(t.id, best, true, now)) out.push({ thesis: this.deps.store.get(t.id)!, endValue: best, held: true });
+      } else {
+        this.deps.store.markWatched(t.id, best, now);
+      }
+    }
+    return out;
+  }
+
+  /**
+   * The furthest the price got in the take's direction from logging up to `until`: what was seen before,
+   * the hourly highs or lows since the last look, and (while the window is open) the live price.
+   */
+  private async furthest(t: Thesis, until: number, withLive: boolean): Promise<number | null> {
+    const up = t.spec.direction === 'up';
+    const from = t.watchedAt ?? t.startAt!;
+    const end = Math.min(until, t.checkAt ?? until);
+    const range = end > from ? await this.deps.measure.range(t.spec, from, end).catch(() => null) : null;
+    const live = withLive ? await this.deps.measure.now(t.spec).catch(() => null) : null;
+    const seen = [t.extreme ?? null, range ? (up ? range.high : range.low) : null, live].filter((v): v is number => typeof v === 'number' && Number.isFinite(v) && v > 0);
+    if (!seen.length) return null;
+    return up ? Math.max(...seen) : Math.min(...seen);
+  }
 }
+
+/** How often open touch takes are checked. */
+const WATCH_EVERY = 10 * 60_000;

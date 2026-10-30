@@ -162,6 +162,59 @@ export class MarketHistory {
     return best;
   }
 
+  /**
+   * The highest high and lowest low between two moments, from hourly candles (so a quick spike counts).
+   * The candle the window starts in is left out: part of it came before. Null if no source answers.
+   */
+  async range(asset: Asset, from: number, to: number): Promise<{ high: number; low: number } | null> {
+    const HOUR = 3_600_000;
+    const start = Math.ceil(from / HOUR) * HOUR;
+    if (to - start < HOUR) return null;
+    const fold = (rows: { t: number; high: number; low: number }[]) => {
+      const inside = rows.filter((r) => r.t >= start && r.t < to && r.high > 0 && r.low > 0);
+      return inside.length ? { high: Math.max(...inside.map((r) => r.high)), low: Math.min(...inside.map((r) => r.low)) } : null;
+    };
+    // Up to 1,000 hours a request; a year's window is a few requests.
+    const chunks: [number, number][] = [];
+    for (let a = start; a < to; a += 1000 * HOUR) chunks.push([a, Math.min(to, a + 1000 * HOUR)]);
+    const tries =
+      asset.kind === 'crypto'
+        ? [
+            async () => {
+              const rows = [];
+              for (const [a, b] of chunks) rows.push(...(await this.deps.binance.candles(asset.pair!, '1h', { startTime: a, endTime: b, limit: 1000 })).map((c) => ({ t: c.openTime, high: c.high, low: c.low })));
+              return fold(rows);
+            },
+            async () => {
+              const rows = [];
+              for (const [a, b] of chunks) {
+                const body = (await this.getJson(`https://api.bybit.com/v5/market/kline?category=spot&symbol=${asset.pair}&interval=60&start=${a}&end=${b}&limit=1000`)) as { result?: { list?: string[][] } };
+                rows.push(...(body.result?.list ?? []).map((r) => ({ t: Number(r[0]), high: Number(r[2]), low: Number(r[3]) })));
+              }
+              return fold(rows);
+            },
+          ]
+        : [
+            async () => {
+              const body = (await this.getJson(
+                `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol(asset.symbol))}?period1=${Math.floor(start / 1000)}&period2=${Math.ceil(to / 1000)}&interval=60m`,
+              )) as { chart?: { result?: { timestamp?: number[]; indicators?: { quote?: { high?: (number | null)[]; low?: (number | null)[] }[] } }[] } };
+              const r = body.chart?.result?.[0];
+              const q = r?.indicators?.quote?.[0];
+              return fold((r?.timestamp ?? []).map((t, i) => ({ t: t * 1000, high: q?.high?.[i] ?? 0, low: q?.low?.[i] ?? 0 })));
+            },
+          ];
+    for (const attempt of tries) {
+      try {
+        const found = await attempt();
+        if (found) return found;
+      } catch (err) {
+        log.debug(`Hourly range for ${asset.symbol} from one source failed`, err);
+      }
+    }
+    return null;
+  }
+
   /** Hourly prices over the last `days` (up to 41), for short-window charts. Oldest first, as timestamps. */
   async hourly(asset: Asset, days: number): Promise<{ points: { t: number; v: number }[]; source: string } | null> {
     const hours = Math.min(1000, Math.max(24, Math.round(days * 24)));

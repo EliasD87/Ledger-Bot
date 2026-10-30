@@ -160,6 +160,28 @@ export function baseRate(closes: Close[], horizon: number, condition: (change: n
   return { hits, windows: changes.length, rate: hits / changes.length, median: median(changes), since: closes[0]!.date };
 }
 
+/**
+ * How often a move of `need` (a fraction; up or down) was reached at any close within `horizon` days, over
+ * every rolling window: the base rate for takes that count on touch. The median is still the end-of-window
+ * change, for context.
+ */
+export function touchRate(closes: Close[], horizon: number, need: number, up: boolean): BaseRate | null {
+  const ends: number[] = [];
+  let hits = 0;
+  for (let i = 0; i + horizon < closes.length; i++) {
+    const base = closes[i]!.close;
+    let hit = false;
+    for (let j = 1; j <= horizon && !hit; j++) {
+      const c = closes[i + j]!.close / base - 1;
+      hit = up ? c >= need : c <= need;
+    }
+    if (hit) hits++;
+    ends.push(closes[i + horizon]!.close / base - 1);
+  }
+  if (ends.length < 30) return null;
+  return { hits, windows: ends.length, rate: hits / ends.length, median: median(ends), since: closes[0]!.date };
+}
+
 export interface Analogs {
   /** Past moments that looked like now. */
   count: number;

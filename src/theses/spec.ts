@@ -45,9 +45,9 @@ export function claimText(s: ThesisSpec, lang: Lang = 'en'): string {
   const p = s.pct ? ` ${pct(s.pct)}+` : '';
   switch (s.kind) {
     case 'price':
-      return `${s.asset} ${s.direction === 'up' ? 'above' : 'below'} ${formatPrice(s.target!)} in ${days(s.horizonDays)}`;
+      return `${s.asset} ${s.direction === 'up' ? 'above' : 'below'} ${formatPrice(s.target!)} within ${days(s.horizonDays)}`;
     case 'move':
-      return `${s.asset} ${s.direction === 'up' ? 'up' : 'down'}${p || ''} over ${days(s.horizonDays)}`;
+      return `${s.asset} ${s.direction === 'up' ? 'up' : 'down'}${p || ''} ${p ? 'within' : 'over'} ${days(s.horizonDays)}`;
     case 'relative':
       return `${s.asset} ${s.direction === 'up' ? 'beats' : 'trails'} ${s.versus}${s.pct ? ` by${p}` : ''} over ${days(s.horizonDays)}`;
     case 'flows':
@@ -81,6 +81,28 @@ export function held(s: ThesisSpec, start: number, end: number): boolean {
     case 'flows':
       return up ? end > 0 : end < 0;
   }
+}
+
+/**
+ * The level that settles a take the moment the price touches it, or null when the take is judged at the end
+ * of its window instead. Price targets and % moves count on touch ("BTC drops to 60k within a week" is right
+ * if it gets there on Tuesday). A target the price was already past when logged ("above 100k" at 110k) means
+ * "still there on the date", so it stays end-of-window; so do "A beats B" and ETF-flow takes, which compare
+ * over the whole period.
+ */
+export function touchLevel(s: ThesisSpec, start: number): number | null {
+  const up = s.direction === 'up';
+  if (s.kind === 'price') {
+    const already = up ? start >= s.target! : start <= s.target!;
+    return already ? null : s.target!;
+  }
+  if (s.kind === 'move' && (s.pct ?? 0) > 0) return start * (up ? 1 + s.pct! : 1 - s.pct!);
+  return null;
+}
+
+/** Whether a price reached a touch level, in the take's direction. */
+export function reached(s: ThesisSpec, level: number, price: number): boolean {
+  return s.direction === 'up' ? price >= level : price <= level;
 }
 
 /** The change in the measure that the thesis needs from here, as a fraction, or null where that doesn't apply. */

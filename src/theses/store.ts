@@ -43,6 +43,9 @@ export interface Thesis {
   createdAt: number;
   /** The member who took it on head to head, if anyone. */
   challengerId: string | null;
+  /** For takes that count on touch: the furthest the price got in the take's direction, and when that was last checked. */
+  extreme?: number | null;
+  watchedAt?: number | null;
 }
 
 export interface Sides {
@@ -93,7 +96,7 @@ const columns = (t = '') =>
   `${t}id AS id, ${t}guild_id AS guildId, ${t}channel_id AS channelId, ${t}message_id AS messageId, ${t}author_id AS authorId, ` +
   `${t}take AS take, ${t}claim AS claim, ${t}spec AS spec, ${t}analysis AS analysis, ${t}status AS status, ${t}start_value AS startValue, ` +
   `${t}start_at AS startAt, ${t}check_at AS checkAt, ${t}end_value AS endValue, ${t}settled_at AS settledAt, ${t}note AS note, ${t}created_at AS createdAt, ` +
-  `${t}challenger_id AS challengerId`;
+  `${t}challenger_id AS challengerId, ${t}extreme AS extreme, ${t}watched_at AS watchedAt`;
 const COLUMNS = columns();
 
 function parse(row: unknown): Thesis | undefined {
@@ -172,6 +175,11 @@ export class ThesisStore {
   /** Every open thesis, on every server: for the mid-take watcher. */
   allOpen(): Thesis[] {
     return this.db.prepare(`SELECT ${COLUMNS} FROM theses WHERE status = 'open' ORDER BY id`).all().map((r) => parse(r)!);
+  }
+
+  /** Remembers how far a touch take's price got, and up to when it was checked. */
+  markWatched(id: number, extreme: number | null, at: number): void {
+    this.db.prepare("UPDATE theses SET extreme = ?, watched_at = ? WHERE id = ? AND status = 'open'").run(extreme, at, id);
   }
 
   /** Records a mid-take moment; false if it was already posted. */

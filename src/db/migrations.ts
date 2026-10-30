@@ -327,4 +327,10 @@ export const migrations: string[] = [
   CREATE INDEX analyst_calls_ticker ON analyst_calls (ticker, published_at);
   CREATE INDEX analyst_calls_published ON analyst_calls (published_at);
   `,
+  // 11: takes that count on touch remember the furthest price reached so far and when they were last
+  // checked, so a spike between checks (or while the bot was down) still counts.
+  `
+  ALTER TABLE theses ADD COLUMN extreme REAL;
+  ALTER TABLE theses ADD COLUMN watched_at INTEGER;
+  `,
 ];

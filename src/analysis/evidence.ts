@@ -3,7 +3,7 @@ import type { MarketContext } from './context.js';
 import { type WebNews, newsQuery } from '../news/webNews.js';
 import { leadingFund, type Desk, ETF_ASSETS } from '../desk/desk.js';
 import { formatPrice, formatUsd } from '../format.js';
-import { type ThesisSpec, measureLabel, neededChange } from '../theses/spec.js';
+import { type ThesisSpec, measureLabel, neededChange, touchLevel } from '../theses/spec.js';
 import type { AssetKind, History, MarketHistory } from './history.js';
 import {
   type Analogs,
@@ -19,6 +19,7 @@ import {
   rangePosition,
   ratio,
   sma,
+  touchRate,
   volatility,
 } from './stats.js';
 
@@ -108,8 +109,14 @@ export class EvidenceBuilder {
         if (spec.kind === 'price') {
           facts.add(`To end ${up ? 'above' : 'below'} ${formatPrice(spec.target!)} it needs ${pct(need)} from ${formatPrice(start)} in ${h} days.`);
         }
-        rate = baseRate(series, window, (c) => (up ? (need > 0 ? c >= need : c > need) : need < 0 ? c <= need : c < need));
-        if (rate) {
+        const touch = touchLevel(spec, start) !== null;
+        rate = touch ? touchRate(series, window, need, up) : baseRate(series, window, (c) => (up ? (need > 0 ? c >= need : c > need) : need < 0 ? c <= need : c < need));
+        if (rate && touch) {
+          // Judged on touch, so the odds are "got there at some point", not "ended there".
+          facts.add(
+            `Base rate: ${measureLabel(spec)} ${up ? 'rose' : 'fell'} ${pct(need)} or more at some point within ${h} days in ${share(rate.rate)} of ${rate.windows} rolling windows since ${month(rate.since)} (median change by the end ${pct(rate.median)}). The take counts as soon as the price gets there.`,
+          );
+        } else if (rate) {
           const what =
             Math.abs(need) < 0.0005
               ? up ? 'rose' : 'fell'
@@ -147,9 +154,12 @@ export class EvidenceBuilder {
     const stock = histories.some((x) => x.asset.kind === 'stock');
     const up = spec.direction === 'up';
     const need = neededChange(spec, start) ?? 0;
+    const touch = touchLevel(spec, start) !== null;
     const out = [];
     for (const days of [...new Set(horizons)].sort((x, y) => x - y)) {
-      const r = baseRate(series, bars(days, stock), (c) => (up ? (need > 0 ? c >= need : c > need) : need < 0 ? c <= need : c < need));
+      const r = touch
+        ? touchRate(series, bars(days, stock), need, up)
+        : baseRate(series, bars(days, stock), (c) => (up ? (need > 0 ? c >= need : c > need) : need < 0 ? c <= need : c < need));
       if (r) out.push({ days, rate: r.rate, windows: r.windows, median: r.median });
     }
     return out.length ? out : { error: 'Not enough history to compare timeframes.' };

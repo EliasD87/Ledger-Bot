@@ -25,7 +25,7 @@ const isPng = (b: Buffer) => b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x
 describe('charts', () => {
   it('draws every chart as a PNG, with the claim, target and source on it', () => {
     const take = thesisChart({ kind: 'price', asset: 'BTC', direction: 'up', target: 100_000, horizonDays: 62 }, [btc]);
-    expect(take).toContain('BTC above 100,000 in 62 days');
+    expect(take).toContain('BTC above 100,000 within 62 days');
     expect(take).toContain('target 100,000');
     expect(take).toContain('Binance');
     const pair = assetsChart([sol, btc]);
@@ -37,7 +37,7 @@ describe('charts', () => {
       days: Array.from({ length: 21 }, (_, i) => ({ date: `2026-10-${String(22 - i).padStart(2, '0')}`, totalNetInflow: (i % 3 ? 1 : -1) * 1e8 })),
     } as never);
     expect(flows).toContain('BTC spot ETF flows');
-    const t = { id: 12, claim: 'BTC above 100,000 in 62 days', spec: { kind: 'price', asset: 'BTC', direction: 'up', target: 100_000, horizonDays: 62 }, startValue: 85_000, startAt: NOW - 20 * DAY, checkAt: NOW + 42 * DAY } as Thesis;
+    const t = { id: 12, claim: 'BTC above 100,000 within 62 days', spec: { kind: 'price', asset: 'BTC', direction: 'up', target: 100_000, horizonDays: 62 }, startValue: 85_000, startAt: NOW - 20 * DAY, checkAt: NOW + 42 * DAY } as Thesis;
     const progress = progressChart(t, [btc], 81_000, NOW);
     expect(progress).toContain('logged at 85,000');
     expect(progress).toContain('check-back');
@@ -75,7 +75,7 @@ describe('charts', () => {
 
   it('draws the check-back with where it finished against the range it had when logged', () => {
     const spec = { kind: 'price', asset: 'BTC', direction: 'up', target: 100_000, horizonDays: 30 } as const;
-    const t = { id: 7, claim: 'BTC above 100,000 in a month', spec, startValue: 80_000, startAt: NOW - 30 * DAY, checkAt: NOW } as Thesis;
+    const t = { id: 7, claim: 'BTC above 100,000 within a month', spec, startValue: 80_000, startAt: NOW - 30 * DAY, checkAt: NOW } as Thesis;
     const outside = verdictChart(t, [btc], 101_000, true);
     expect(outside).toContain('aged well');
     expect(outside).toContain('outside its typical range');

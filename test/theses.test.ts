@@ -38,8 +38,8 @@ const spec: ThesisSpec = { kind: 'relative', asset: 'SOL', versus: 'ETH', direct
 describe('thesis specs', () => {
   it('writes the claim in code and checks it', () => {
     expect(claimText(spec)).toBe('SOL beats ETH over a month');
-    expect(claimText({ kind: 'price', asset: 'BTC', direction: 'up', target: 100_000, horizonDays: 62 })).toBe('BTC above 100,000 in 62 days');
-    expect(claimText({ kind: 'move', asset: 'NVDA', direction: 'up', pct: 0.1, horizonDays: 14 })).toBe('NVDA up 10%+ over 2 weeks');
+    expect(claimText({ kind: 'price', asset: 'BTC', direction: 'up', target: 100_000, horizonDays: 62 })).toBe('BTC above 100,000 within 62 days');
+    expect(claimText({ kind: 'move', asset: 'NVDA', direction: 'up', pct: 0.1, horizonDays: 14 })).toBe('NVDA up 10%+ within 2 weeks');
     expect(claimText({ kind: 'flows', asset: 'ETH', direction: 'down', horizonDays: 7 })).toBe('ETH spot ETFs net outflows over a week');
     expect(specProblem({ ...spec, versus: 'SOL' })).toMatch(/itself/);
     expect(specProblem({ ...spec, horizonDays: 400 })).toMatch(/year/);

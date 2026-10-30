@@ -178,7 +178,7 @@ describe('timeframes and sharper takes', () => {
     const t = make('alice');
     const llm: ChatModel = { model: 'fake', complete: async () => ({ text: JSON.stringify({ spec: { kind: 'price', asset: 'ETH', direction: 'up', target: 88_000, horizonDays: 30 }, why: 'More room.' }), toolCalls: [], usage }) };
     const out = await sharpenTake({ llm, evidence: evidenceStub(), theses: store, spend: new Spend(db) }, t);
-    expect(out).toMatchObject({ claim: 'BTC above 88,000 in a month', why: 'More room.' });
+    expect(out).toMatchObject({ claim: 'BTC above 88,000 within a month', why: 'More room.' });
     // A reason quoting a number it was never shown is replaced with a plain one.
     const invented: ChatModel = { model: 'fake', complete: async () => ({ text: JSON.stringify({ spec: { kind: 'price', asset: 'BTC', direction: 'up', target: 88_000, horizonDays: 30 }, why: 'Hits 77% of the time.' }), toolCalls: [], usage }) };
     expect(await sharpenTake({ llm: invented, evidence: evidenceStub(), theses: store, spend: new Spend(db) }, t)).toMatchObject({ why: 'A clearer level and timeframe, so the check-back says something.' });
@@ -195,7 +195,7 @@ describe('timeframes and sharper takes', () => {
     const out = await redraftTake(deps, t, 'Alice', { ...spec, horizonDays: 30 }, 'timeframe changed to 1 month');
     expect(out.ok).toBe(true);
     const after = store.get(t.id)!;
-    expect(after.claim).toBe('BTC above 90,000 in a month');
+    expect(after.claim).toBe('BTC above 90,000 within a month');
     expect(after.analysis.assumptions[0]).toBe('timeframe changed to 1 month');
     expect(after.analysis.assumptions.join(' ')).not.toContain('14 days'); // the old timeframe note is gone
     expect(after.analysis.baseRate).toBe(0.3);
