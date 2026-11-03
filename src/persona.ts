@@ -141,6 +141,7 @@ export const LINES = {
   hourlyLimit: (minutes: number) => `⏳ That's your hour with me used up. Back in ${minutes} min.`,
   budgetSpent: `⏳ That's it for today: my daily budget is spent. Back after 00:00 UTC.`,
   llmError: `Lost my train of thought there. Try again in a minute.`,
+  llmBusy: `The AI service I run on is overloaded right now. Try again in a few minutes.`,
   cantRead: `That one came through blank on my end. Reply with the @ ping left on and I'll read it.`,
   empty: `Lost the thread there. Ask me again?`,
 };

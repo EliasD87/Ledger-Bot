@@ -1,7 +1,7 @@
 import { type Lang, langOf } from '../lang.js';
 import { ComponentType, type Message, MessageReferenceType } from 'discord.js';
 import type { Config } from '../config.js';
-import type { ChatMessage, ChatModel, Usage } from '../llm/deepseek.js';
+import { type ChatMessage, type ChatModel, type Usage, busy } from '../llm/deepseek.js';
 import { type RateLimiter, type Spend, overBudget } from '../llm/guards.js';
 import { answerChecked } from '../llm/replyCheck.js';
 import { log } from '../log.js';
@@ -143,7 +143,8 @@ export class Conversation {
       log.error('DeepSeek request failed', err);
       clearTimeout(holdTimer);
       const placeholder = held ? await held : null;
-      await (placeholder ? placeholder.edit({ content: LINES.llmError }) : message.reply(LINES.llmError)).catch(() => {});
+      const line = busy(err) ? LINES.llmBusy : LINES.llmError;
+      await (placeholder ? placeholder.edit({ content: line }) : message.reply(line)).catch(() => {});
       return;
     } finally {
       clearInterval(typing);

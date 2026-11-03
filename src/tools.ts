@@ -2,6 +2,7 @@ import { type AnalystCall, type AnalystStore, shortQuote, targetText } from './a
 import type { NftDesk } from './nfts/desk.js';
 import type { NftSnapshot } from './nfts/sources.js';
 import type { Lang } from './lang.js';
+import { log } from './log.js';
 import type { MarketContext } from './analysis/context.js';
 import type { WebNews } from './news/webNews.js';
 import { type AlertDepsForCreate, type AlertRequest, createAlert, describeAlert } from './alerts/service.js';
@@ -663,7 +664,13 @@ export class ToolKit {
         } catch {
           return JSON.stringify({ error: 'Arguments were not valid JSON.' });
         }
-        return JSON.stringify(withRetryHint(await handler(args)));
+        // One broken lookup must not sink the whole reply: the model hears it failed and answers without it.
+        try {
+          return JSON.stringify(withRetryHint(await handler(args)));
+        } catch (err) {
+          log.warn(`Tool ${call.name} failed`, err);
+          return JSON.stringify({ error: `${call.name} failed just now. Answer without it, and say plainly that this data isn't available right now.` });
+        }
       },
     };
   }

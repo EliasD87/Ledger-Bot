@@ -54,6 +54,31 @@ export interface DeepSeekOptions {
   baseUrl: string;
   model: string;
   prices: Prices;
+  /** Pauses before asking again while DeepSeek says it's too busy (tests pass zeros). */
+  busyWaitsMs?: number[];
+}
+
+/**
+ * DeepSeek turns requests away with 503 "too busy" in spells that last a few minutes. The SDK's own
+ * retries come within a second or two, so before giving up, wait a little longer and ask again.
+ */
+const BUSY_WAITS_MS = [4_000, 12_000];
+
+export async function patiently<T>(request: () => Promise<T>, waits = BUSY_WAITS_MS): Promise<T> {
+  for (let i = 0; ; i++) {
+    try {
+      return await request();
+    } catch (err) {
+      if (!busy(err) || i >= waits.length) throw err;
+      await new Promise((r) => setTimeout(r, waits[i]));
+    }
+  }
+}
+
+/** DeepSeek is overloaded or rate limiting us, as opposed to the request being wrong. */
+export function busy(err: unknown): boolean {
+  const status = (err as { status?: unknown } | null)?.status;
+  return status === 503 || status === 429;
 }
 
 /** DeepSeek's chat API through the OpenAI SDK (the API is OpenAI-compatible). */
@@ -80,7 +105,7 @@ export class DeepSeek implements ChatModel {
       // bills reasoning tokens as output); the stress-test argument does.
       thinking: { type: opts.thinking ? 'enabled' : 'disabled' },
     } as OpenAI.Chat.ChatCompletionCreateParamsNonStreaming;
-    const res = await this.client.chat.completions.create(params);
+    const res = await patiently(() => this.client.chat.completions.create(params), this.opts.busyWaitsMs);
     const message = res.choices[0]?.message;
     const native = (message?.tool_calls ?? []).flatMap((call) =>
       call.type === 'function' ? [{ id: call.id, name: call.function.name, arguments: call.function.arguments }] : [],

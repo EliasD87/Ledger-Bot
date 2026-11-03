@@ -221,6 +221,13 @@ describe('ToolKit', () => {
     ]);
     expect(out.not_found).toMatch(/^NOPE:/);
   });
+
+  it('turns a lookup that throws into an error for the model, so the reply still goes out', async () => {
+    const nfts = { lookup: async () => Promise.reject(new Error('store broke')) } as never;
+    const { tools } = setup({ nfts });
+    const out = await run(tools.session({ guildId: 'g', channelId: 'c', userId: 'alice' }), 'nft_stats', { collection: 'pudgy penguins' });
+    expect(out.error).toMatch(/nft_stats failed just now/);
+  });
 });
 
 describe('raw data instead of a reply', () => {
