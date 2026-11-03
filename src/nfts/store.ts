@@ -22,27 +22,28 @@ export const CYBEREATOR: NftCollection = {
   name: 'CybeReator',
   symbol: 'CYBR',
   chain: 'valuechain',
-  aliases: ['cybereator', 'cybereators', 'cyber reator', 'cybr', 'our collection', 'our nft', 'our nfts', 'the collection'],
+  aliases: ['cybereator', 'cybereators', 'cyber reator', 'cybr', 'our collection', 'our nft', 'our nfts', 'the collection', 'our floor', 'cybereator floor', 'cybr floor'],
 };
 
-/** Nicknames for big collections that CoinGecko's search doesn't know by that name. */
-const NICKNAMES: Record<string, string> = {
-  bayc: 'cg:bored-ape-yacht-club',
-  apes: 'cg:bored-ape-yacht-club',
-  'bored apes': 'cg:bored-ape-yacht-club',
-  mayc: 'cg:mutant-ape-yacht-club',
-  mutants: 'cg:mutant-ape-yacht-club',
-  punks: 'cg:cryptopunks',
-  pudgies: 'cg:pudgy-penguins',
-  pudgy: 'cg:pudgy-penguins',
-  'lil pudgies': 'cg:lil-pudgys',
-  miladys: 'cg:milady-maker',
-  milady: 'cg:milady-maker',
-  azuki: 'cg:azuki',
-  doodles: 'cg:doodles-official',
-  squiggles: 'cg:chromie-squiggle-by-snowfro',
-  'mad lads': 'cg:mad-lads',
-};
+/**
+ * Collections members talk about most, loaded in the background from the first start and kept up to date,
+ * so a question about them never waits on a data source. The aliases are the nicknames members use.
+ */
+export const POPULAR: NftCollection[] = [
+  { key: 'cg:pudgy-penguins', name: 'Pudgy Penguins', symbol: 'PPG', chain: 'ethereum', aliases: ['pudgy', 'pudgies', 'pudgy penguin', 'ppg'] },
+  { key: 'cg:lil-pudgys', name: 'Lil Pudgys', symbol: null, chain: 'ethereum', aliases: ['lil pudgy', 'lil pudgies'] },
+  { key: 'cg:bored-ape-yacht-club', name: 'Bored Ape Yacht Club', symbol: 'BAYC', chain: 'ethereum', aliases: ['bayc', 'apes', 'bored apes', 'bored ape'] },
+  { key: 'cg:mutant-ape-yacht-club', name: 'Mutant Ape Yacht Club', symbol: 'MAYC', chain: 'ethereum', aliases: ['mayc', 'mutants', 'mutant apes'] },
+  { key: 'cg:cryptopunks', name: 'CryptoPunks', symbol: 'PUNK', chain: 'ethereum', aliases: ['punks', 'punk', 'crypto punks'] },
+  { key: 'cg:milady-maker', name: 'Milady Maker', symbol: null, chain: 'ethereum', aliases: ['milady', 'miladys', 'miladies'] },
+  { key: 'cg:azuki', name: 'Azuki', symbol: 'AZUKI', chain: 'ethereum', aliases: ['azukis'] },
+  { key: 'cg:doodles-official', name: 'Doodles', symbol: 'DOODLE', chain: 'ethereum', aliases: ['doodle'] },
+  { key: 'cg:chromie-squiggle-by-snowfro', name: 'Chromie Squiggle', symbol: null, chain: 'ethereum', aliases: ['squiggle', 'squiggles', 'chromie squiggles'] },
+  { key: 'cg:mad-lads', name: 'Mad Lads', symbol: 'MLADS', chain: 'solana', aliases: ['mad lad', 'madlads'] },
+  { key: 'cg:okay-bears', name: 'Okay Bears', symbol: null, chain: 'solana', aliases: ['okay bear', 'okb'] },
+  { key: 'cg:degods', name: 'DeGods', symbol: null, chain: 'ethereum', aliases: ['degod'] },
+  { key: 'cg:hypurr-hyperevm', name: 'Hypurr', symbol: 'HYPURR', chain: 'hyperevm', aliases: ['hypurrs'] },
+];
 
 const COLUMNS = `s.key AS key, c.name AS name, c.symbol AS symbol, c.chain AS chain, s.currency AS currency, s.floor AS floor,
   s.floor_usd AS floorUsd, s.change_24h AS change24h, s.change_7d AS change7d, s.change_30d AS change30d, s.volume_24h AS volume24h,
@@ -52,7 +53,7 @@ const COLUMNS = `s.key AS key, c.name AS name, c.symbol AS symbol, c.chain AS ch
 /** NFT collections Ledger follows, and the readings the background sync takes of them. */
 export class NftStore {
   constructor(private readonly db: Db) {
-    this.add(CYBEREATOR, Date.now(), { pinned: true });
+    for (const c of [CYBEREATOR, ...POPULAR]) this.add(c, Date.now(), { pinned: true });
   }
 
   /** Adds a collection (or refreshes its name); `pinned` keeps it on the sync list for good. */
@@ -83,7 +84,7 @@ export class NftStore {
         (r.symbol && r.symbol.toLowerCase() === q) ||
         (r.aliases ? (JSON.parse(r.aliases) as string[]) : []).includes(q),
     );
-    return hit?.key ?? NICKNAMES[q] ?? null;
+    return hit?.key ?? null;
   }
 
   markAsked(key: string, now: number): void {
@@ -99,12 +100,28 @@ export class NftStore {
     }
   }
 
-  /** What the sync keeps up to date: CybeReator, the biggest collections, and anything asked about lately. */
+  /** What the sync keeps up to date: CybeReator, popular and the biggest collections, and anything asked about lately. */
   watchlist(now: number): string[] {
+    return this.due(now, 0).map((d) => d.key);
+  }
+
+  /**
+   * Followed collections whose latest reading is older than `maxAge` (or that were never read): never-read
+   * first (asked about, then popular, then the top list), then the stalest.
+   */
+  due(now: number, maxAge: number): { key: string; last: number | null }[] {
     const rows = this.db
-      .prepare('SELECT key FROM nft_collections WHERE pinned = 1 OR top = 1 OR asked_at >= ? ORDER BY pinned DESC, asked_at DESC')
-      .all(now - ASKED_DAYS * DAY) as { key: string }[];
-    return rows.map((r) => r.key);
+      .prepare(
+        `SELECT c.key AS key, c.asked_at AS asked, c.pinned AS pinned, (SELECT MAX(at) FROM nft_snapshots s WHERE s.key = c.key) AS last
+         FROM nft_collections c WHERE c.pinned = 1 OR c.top = 1 OR c.asked_at >= ?`,
+      )
+      .all(now - ASKED_DAYS * DAY) as { key: string; asked: number | null; pinned: number; last: number | null }[];
+    // Never read: asked about first, then the popular ones, then the rest of the top list.
+    const rank = (r: (typeof rows)[number]) => (r.last !== null ? 3 : r.asked !== null ? 0 : r.pinned ? 1 : 2);
+    return rows
+      .filter((r) => r.last === null || now - r.last >= maxAge)
+      .sort((a, b) => rank(a) - rank(b) || (a.last ?? 0) - (b.last ?? 0) || (b.asked ?? 0) - (a.asked ?? 0) || a.key.localeCompare(b.key))
+      .map(({ key, last }) => ({ key, last }));
   }
 
   record(s: NftSnapshot): void {

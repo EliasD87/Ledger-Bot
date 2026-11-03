@@ -31,6 +31,8 @@ export interface Config {
   sosovalueApiKey: string | undefined;
   /** DripStack: analyst calls from newsletters and podcasts. Optional. */
   dripstackApiKey: string | undefined;
+  /** Optional free CoinGecko demo key, for NFT data: a higher rate limit than keyless. */
+  coingeckoApiKey: string | undefined;
   priceFeedUrl: string;
   dbPath: string;
   logLevel: string;
@@ -65,6 +67,7 @@ export function loadConfig(env: Env = loadDotEnv()): Config {
     threadMaxMessages: read.number('THREAD_MAX_MESSAGES', 12),
     sosovalueApiKey: read.optional('SOSOVALUE_API_KEY'),
     dripstackApiKey: read.optional('DRIPSTACK_API_KEY'),
+    coingeckoApiKey: read.optional('COINGECKO_API_KEY'),
     priceFeedUrl: read.optional('PRICE_FEED_URL') ?? 'https://data-api.binance.vision',
     dbPath: read.optional('DB_PATH') ?? './data/ledger.db',
     logLevel: read.optional('LOG_LEVEL') ?? 'info',

@@ -71,10 +71,11 @@ const context = new MarketContext({ history, news });
 const analysts = config.dripstackApiKey ? new AnalystStore(db) : undefined;
 const analystSync = analysts ? new AnalystRefresher({ client: new DripStack({ apiKey: config.dripstackApiKey! }), store: analysts }) : null;
 if (!analysts) log.warn('No DRIPSTACK_API_KEY: analyst views are off.');
-// NFT collections: a background sync reads CybeReator, the biggest collections and anything asked about lately.
+// NFT collections: fetched once, stored, and refreshed by a gentle background sync; chats read the store.
 const nfts = new NftDesk({
   store: new NftStore(db),
   sources: new NftSources({
+    coingeckoKey: config.coingeckoApiKey,
     // The USDT pair, so coins Binance doesn't list (SOSO) are priced by the backup exchanges.
     usd: async (coin) => (await crypto.stats24h([`${coin}USDT`]))[`${coin}USDT`]?.price ?? null,
   }),

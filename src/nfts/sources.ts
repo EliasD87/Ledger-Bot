@@ -66,13 +66,17 @@ export function fromWei(wei: unknown): number | null {
  */
 export class NftSources {
   private nextSlot = 0;
+  /** Hosts that refused with a rate limit, and when to try them again. */
+  private readonly pausedUntil = new Map<string, number>();
 
   constructor(
     private readonly deps: {
+      /** A free CoinGecko demo key: optional, raises the rate limit (and server IPs are throttled harder without one). */
+      coingeckoKey?: string;
       /** The USD price of a coin (SOSO, SOL), for sources that only quote in their own coin. */
       usd?: (symbol: string) => Promise<number | null>;
       fetchImpl?: typeof fetch;
-      /** Gap between paced requests; 6 seconds keeps the sync at 10 a minute, under CoinGecko's free limit. */
+      /** Gap between paced requests; 15 seconds keeps the sync at 4 a minute, well under CoinGecko's free limit. */
       gapMs?: number;
       now?: () => number;
       sleep?: (ms: number) => Promise<void>;
@@ -80,8 +84,8 @@ export class NftSources {
   ) {}
 
   /** Collections whose name or symbol matches, best first (CoinGecko's search). */
-  async search(query: string): Promise<NftMatch[]> {
-    const body = (await this.json(`${CG}/search?query=${encodeURIComponent(query)}`)) as { nfts?: { id?: string; name?: string; symbol?: string }[] };
+  async search(query: string, paced = false): Promise<NftMatch[]> {
+    const body = (await this.json(`${CG}/search?query=${encodeURIComponent(query)}`, paced)) as { nfts?: { id?: string; name?: string; symbol?: string }[] };
     return (body.nfts ?? []).filter((n) => n.id && n.name).slice(0, 6).map((n) => ({ key: `cg:${n.id}`, name: n.name!, symbol: n.symbol ?? null }));
   }
 
@@ -228,20 +232,27 @@ export class NftSources {
     return (await this.get(url, paced, { ...HEADERS, accept: 'text/html' })).text();
   }
 
+  /** Whether a source is resting after a rate limit; nothing is sent to it until then. */
+  paused(key: string): boolean {
+    const host = key.startsWith('vm:') ? 'www.valuemint.store' : key.startsWith('me:') ? 'api-mainnet.magiceden.dev' : new URL(CG).host;
+    return (this.pausedUntil.get(host) ?? 0) > this.now();
+  }
+
   private async get(url: string, paced: boolean, headers: Record<string, string> = HEADERS): Promise<Response> {
-    for (let attempt = 0; ; attempt++) {
-      if (paced) await this.waitTurn();
-      const res = await (this.deps.fetchImpl ?? fetch)(url, { headers, signal: AbortSignal.timeout(15_000) });
-      // CoinGecko's free API throttles bursts: wait as long as it asks (a few seconds at most) and try once more.
-      if (res.status === 429 && attempt === 0) {
-        const wait = Math.min(10, Math.max(2, Number(res.headers.get('retry-after')) || 4)) * 1000;
-        await (this.deps.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms))))(wait);
-        continue;
-      }
-      if (res.status === 429) throw new NftSourceBusy(new URL(url).host);
-      if (!res.ok) throw new Error(`${new URL(url).host} returned HTTP ${res.status}`);
-      return res;
+    const host = new URL(url).host;
+    if ((this.pausedUntil.get(host) ?? 0) > this.now()) throw new NftSourceBusy(host);
+    if (url.startsWith(CG) && this.deps.coingeckoKey) headers = { ...headers, 'x-cg-demo-api-key': this.deps.coingeckoKey };
+    if (paced) await this.waitTurn();
+    const res = await (this.deps.fetchImpl ?? fetch)(url, { headers, signal: AbortSignal.timeout(15_000) });
+    // A rate limit: leave that source alone for a while (as long as it asks, 5 minutes at least) instead
+    // of retrying into it, which only extends the block.
+    if (res.status === 429) {
+      const wait = Math.max(300, Number(res.headers.get('retry-after')) || 0) * 1000;
+      this.pausedUntil.set(host, this.now() + wait);
+      throw new NftSourceBusy(host);
     }
+    if (!res.ok) throw new Error(`${host} returned HTTP ${res.status}`);
+    return res;
   }
 
   private now(): number {
@@ -252,7 +263,7 @@ export class NftSources {
   private async waitTurn(): Promise<void> {
     const now = this.now();
     const at = Math.max(now, this.nextSlot);
-    this.nextSlot = at + (this.deps.gapMs ?? 6_000);
+    this.nextSlot = at + (this.deps.gapMs ?? 15_000);
     if (at > now) await (this.deps.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms))))(at - now);
   }
 }

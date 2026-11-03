@@ -817,8 +817,10 @@ async function nftStatsForModel(nfts: NftDesk, args: Record<string, unknown>) {
     return { biggest_collections: top.map(nftForModel), note };
   }
   const r = await nfts.lookup(name);
-  if ('unavailable' in r) {
-    return { error: `The NFT data source is busy, so "${name}" could not be read just now. Say that in one line and suggest asking again in a minute; do not guess numbers.` };
+  if ('loading' in r) {
+    return {
+      not_loaded_yet: `"${name}" isn't stored yet. It's queued and the background sync loads it within about 10 minutes. Say that in one line; do not guess numbers.`,
+    };
   }
   if ('notFound' in r) {
     return { not_found: `No NFT collection found for "${name}".`, ...(r.others.length ? { similar_names: r.others } : {}) };

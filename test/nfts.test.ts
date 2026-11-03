@@ -133,38 +133,67 @@ describe('the NFT store', () => {
 });
 
 describe('the NFT desk', () => {
-  it('reads a new collection once, then answers from the store and keeps it on the sync list', async () => {
+  it('fetches a never-stored collection once, then answers from the store and keeps it on the sync list', async () => {
     const { desk, store, asked } = setup();
+    expect(await desk.lookup('lil pudgys')).toMatchObject({ notFound: 'lil pudgys' }); // a popular one, but this fake web has nothing on it
     const first = await desk.lookup('pudgy penguins');
     expect(first).toMatchObject({ found: { name: 'Pudgy Penguins', floor: 2.34 } });
     const fetched = asked.length;
-    await desk.lookup('Pudgy Penguins');
-    expect(asked.length).toBe(fetched); // the second question reads the store
-    expect(store.watchlist(NOW)).toEqual([CYBEREATOR.key, 'cg:pudgy-penguins']);
-    expect(store.watchlist(NOW + 8 * DAY)).toEqual([CYBEREATOR.key]); // nobody asked for a week
+    await desk.lookup('pudgies');
+    expect(asked.length).toBe(fetched); // stored: no request
+    expect(store.watchlist(NOW)).toContain('cg:pudgy-penguins');
   });
 
-  it('names the other collections a search turned up', async () => {
-    const r = await setup().desk.lookup('pudgy penguin');
+  it('turns up a collection by search, and names the others it found', async () => {
+    const r = await setup().desk.lookup('pudgy p');
     expect(r).toMatchObject({ found: { name: 'Pudgy Penguins' }, others: ['Lil Pudgys'] });
     expect(await setup().desk.lookup('zzz')).toMatchObject({ notFound: 'zzz', others: [] });
   });
 
-  it('syncs CybeReator and the biggest collections in the background, skipping fresh readings', async () => {
-    const { desk, store, at } = setup();
-    expect(await desk.tick()).toBe(2);
+  it('reads CybeReator every sync, and the rest at most six at a time, skipping ones that just failed', async () => {
+    const { desk, store, asked, at } = setup();
+    const coingecko = () => asked.filter((u) => u.includes('coingecko')).length;
+    expect(await desk.tick()).toBe(2); // CybeReator and CryptoPunks; the other CoinGecko reads hit popular collections this fake web lacks
     expect(store.latest(CYBEREATOR.key)).toMatchObject({ listed: 20 });
-    expect(desk.top().map((s) => s.name)).toEqual(['Cybereator', 'CryptoPunks']);
+    expect(coingecko()).toBe(6); // the top list and five collections: six requests a sync at most
     expect(await desk.tick()).toBeNull(); // not due yet
-    at(NOW + 31 * MINUTE);
-    expect(await desk.tick()).toBe(2);
+    for (let i = 1; i <= 4; i++) {
+      const before = coingecko();
+      at(NOW + i * 11 * MINUTE);
+      await desk.tick();
+      expect(coingecko() - before).toBeLessThanOrEqual(6);
+    }
+    expect(coingecko()).toBe(1 + 13); // the top list once, and each of the 13 collections (CryptoPunks is on both lists) tried once
+    expect(store.latest('cg:cryptopunks')).toMatchObject({ name: 'CryptoPunks' }); // reached once the failing ones stepped aside
+  });
+
+  it('rests a rate-limited source for 5 minutes, queues new names, and loads them on a later sync', async () => {
+    let throttled = true;
+    const { fetchImpl, asked } = web(ROUTES);
+    const store = new NftStore(openDb(':memory:'));
+    let now = NOW;
+    const flaky = (async (url: string) =>
+      throttled && url.includes('coingecko') ? new Response('Throttled', { status: 429 }) : fetchImpl(url)) as typeof fetch;
+    const desk = new NftDesk({ store, sources: new NftSources({ fetchImpl: flaky, now: () => now, sleep: async () => {} }), now: () => now });
+    expect(await desk.lookup('pudgy p')).toEqual({ loading: 'pudgy p' });
+    const before = asked.length;
+    expect(await desk.lookup('azuki')).toEqual({ loading: 'azuki' }); // paused: nothing sent
+    expect(asked.length).toBe(before);
+    throttled = false;
+    now += 11 * MINUTE;
+    await desk.tick();
+    expect(store.latest('cg:pudgy-penguins')).toMatchObject({ floor: 2.34 }); // the queued name was searched, then read first
   });
 });
 
 describe('nft_stats', () => {
   async function run(args: object, routes?: Record<string, unknown>) {
-    const { desk } = setup(routes);
-    await desk.tick();
+    const { desk, at } = setup(routes);
+    for (let i = 0; i < 5; i++) {
+      at(NOW + i * 11 * MINUTE);
+      await desk.tick();
+    }
+    await desk.lookup('pudgies');
     const kit = new ToolKit({ nfts: desk, now: () => NOW } as never);
     return JSON.parse(await kit.session({ guildId: 'g', channelId: 'c', userId: 'u' }).run({ id: '1', name: 'nft_stats', arguments: JSON.stringify(args) }));
   }
@@ -178,17 +207,16 @@ describe('nft_stats', () => {
 
   it('lists the biggest collections when no name is given', async () => {
     const r = await run({});
-    expect(r.biggest_collections.map((c: { collection: string }) => c.collection)).toEqual(['Cybereator (CYBR)', 'CryptoPunks (PUNK)']);
+    expect(r.biggest_collections.map((c: { collection: string }) => c.collection)).toEqual(['Cybereator (CYBR)', 'CryptoPunks (PUNK)', 'Pudgy Penguins (PPG)']);
   });
 
-  it('says the source is busy, not that the collection does not exist, when it is rate limited', async () => {
+  it('says a collection is loading, not missing, when the source is rate limited', async () => {
     const store = new NftStore(openDb(':memory:'));
     const fetchImpl = (async () => new Response('Throttled', { status: 429 })) as unknown as typeof fetch;
     const desk = new NftDesk({ store, sources: new NftSources({ fetchImpl, sleep: async () => {} }), now: () => NOW });
-    expect(await desk.lookup('doodles')).toEqual({ unavailable: 'doodles' });
     const kit = new ToolKit({ nfts: desk, now: () => NOW } as never);
     const r = JSON.parse(await kit.session({ guildId: 'g', channelId: 'c', userId: 'u' }).run({ id: '1', name: 'nft_stats', arguments: '{"collection":"doodles"}' }));
-    expect(r.error).toMatch(/busy/);
+    expect(r.not_loaded_yet).toMatch(/queued/);
     expect(r.retry).toBeUndefined();
   });
 
