@@ -36,6 +36,9 @@ import { ToolKit } from './tools.js';
 import { DripStack } from './analysts/dripstack.js';
 import { AnalystRefresher } from './analysts/refresher.js';
 import { AnalystStore } from './analysts/store.js';
+import { NftDesk } from './nfts/desk.js';
+import { NftSources } from './nfts/sources.js';
+import { NftStore } from './nfts/store.js';
 
 const config = loadConfig();
 setLogLevel(config.logLevel);
@@ -68,6 +71,14 @@ const context = new MarketContext({ history, news });
 const analysts = config.dripstackApiKey ? new AnalystStore(db) : undefined;
 const analystSync = analysts ? new AnalystRefresher({ client: new DripStack({ apiKey: config.dripstackApiKey! }), store: analysts }) : null;
 if (!analysts) log.warn('No DRIPSTACK_API_KEY: analyst views are off.');
+// NFT collections: a background sync reads CybeReator, the biggest collections and anything asked about lately.
+const nfts = new NftDesk({
+  store: new NftStore(db),
+  sources: new NftSources({
+    // The USDT pair, so coins Binance doesn't list (SOSO) are priced by the backup exchanges.
+    usd: async (coin) => (await crypto.stats24h([`${coin}USDT`]))[`${coin}USDT`]?.price ?? null,
+  }),
+});
 const evidence = new EvidenceBuilder({ history, desk, news, context, analysts });
 const renderer = new ChartRenderer();
 const charts = new Charts({ history, desk, renderer });
@@ -95,6 +106,7 @@ const conversation = new Conversation({
     news,
     context,
     analysts,
+    nfts,
   }),
   members,
   theses,
@@ -132,6 +144,7 @@ async function start(readContent: boolean): Promise<void> {
     }
     void refreshTape();
     void analystSync?.tick();
+    void nfts.tick();
     await Promise.all(c.guilds.cache.map((guild) => registerCommands(guild)));
   });
   client.on(Events.GuildCreate, (guild) => void registerCommands(guild));
@@ -197,6 +210,7 @@ async function tick(): Promise<void> {
   await alertWatcher?.tick();
   void refreshTape().catch((err) => log.warn('Tape refresh failed', err));
   void analystSync?.tick();
+  void nfts.tick();
   if (Date.now() - lastPrune > 60 * 60 * 1000) {
     lastPrune = Date.now();
     archive.prune(lastPrune);

@@ -333,4 +333,40 @@ export const migrations: string[] = [
   ALTER TABLE theses ADD COLUMN extreme REAL;
   ALTER TABLE theses ADD COLUMN watched_at INTEGER;
   `,
+  // 12: NFT collections Ledger follows (CybeReator, the biggest ones, anything members asked about) and
+  // the readings the background sync takes of them every 30 minutes.
+  `
+  CREATE TABLE nft_collections (
+    key         TEXT PRIMARY KEY,     -- source and id there: cg:pudgy-penguins, vm:0xcd30…, me:mad_lads
+    name        TEXT NOT NULL,
+    symbol      TEXT,
+    chain       TEXT,
+    aliases     TEXT,                 -- JSON list of other names members use
+    pinned      INTEGER NOT NULL DEFAULT 0,
+    top         INTEGER NOT NULL DEFAULT 0,
+    asked_at    INTEGER,
+    added_at    INTEGER NOT NULL
+  );
+  CREATE TABLE nft_snapshots (
+    key             TEXT NOT NULL,
+    at              INTEGER NOT NULL,
+    currency        TEXT NOT NULL,     -- the coin it trades in: ETH, SOL, SOSO
+    floor           REAL,
+    floor_usd       REAL,
+    change_24h      REAL,              -- floor changes as fractions, where the source reports them
+    change_7d       REAL,
+    change_30d      REAL,
+    volume_24h      REAL,
+    volume_24h_usd  REAL,
+    volume_total    REAL,
+    market_cap_usd  REAL,
+    owners          INTEGER,
+    supply          INTEGER,
+    listed          INTEGER,
+    sales_24h       INTEGER,
+    url             TEXT,
+    source          TEXT NOT NULL,
+    PRIMARY KEY (key, at)
+  );
+  `,
 ];

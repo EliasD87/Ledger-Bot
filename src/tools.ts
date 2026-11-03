@@ -1,4 +1,6 @@
 import { type AnalystCall, type AnalystStore, shortQuote, targetText } from './analysts/store.js';
+import type { NftDesk } from './nfts/desk.js';
+import type { NftSnapshot } from './nfts/sources.js';
 import type { Lang } from './lang.js';
 import type { MarketContext } from './analysis/context.js';
 import type { WebNews } from './news/webNews.js';
@@ -386,6 +388,28 @@ const ANALYST_TOOLS: Tool[] = [
   },
 ];
 
+const NFT_TOOLS: Tool[] = [
+  {
+    type: 'function',
+    function: {
+      name: 'nft_stats',
+      description:
+        "An NFT collection's market: floor price (in the collection's own coin and in USD), floor change over 24h, 7d and 30d, 24h volume and sales, " +
+        "owners, supply, items listed, and when it was read. Covers CybeReator (this server's own collection, on ValueChain, traded on ValueMint in SOSO) " +
+        'and thousands of collections on Ethereum, Solana, Base and other chains. Leave out collection for the biggest collections right now. ' +
+        'Use for "what is the floor?", "how are pudgies doing?", "our floor", "CYBR floor", "biggest NFT collections". ' +
+        'For NFT collections only: coins and tokens (PENGU, APE) go to get_price.',
+      parameters: {
+        type: 'object',
+        properties: {
+          collection: { type: 'string', description: 'Collection name or nickname, e.g. "CybeReator", "pudgy penguins", "BAYC", "mad lads". Omit for the biggest collections.' },
+        },
+        additionalProperties: false,
+      },
+    },
+  },
+];
+
 /** Data the stress-test card already shows, so it isn't fetched again for the line above the card. */
 const CARD_COVERS = new Set(['analyze', 'get_price', 'get_etf_flows', 'get_macro', 'get_news', 'get_market', 'get_recap', 'get_treasury_buys']);
 
@@ -421,6 +445,8 @@ export interface ToolKitDeps {
   context?: MarketContext;
   /** Analyst calls synced from DripStack (read only). */
   analysts?: AnalystStore;
+  /** NFT collections: synced readings, and a first live read for a new one. */
+  nfts?: NftDesk;
   now?: () => number;
 }
 
@@ -441,6 +467,7 @@ export class ToolKit {
       ...(memory ? MEMORY_TOOLS : []),
       ...(myPage ? PAGE_TOOLS : []),
       ...(this.deps.analysts ? ANALYST_TOOLS : []),
+      ...(this.deps.nfts ? NFT_TOOLS : []),
     ];
   }
 
@@ -464,6 +491,7 @@ export class ToolKit {
       ...(memory ? memoryHandlers(memory, ctx) : {}),
       ...(myPage ? { get_my_page: async () => pageForModel(await myPage(ctx.guildId, ctx.userId)) } : {}),
       ...(this.deps.analysts ? { analyst_views: (args: Record<string, unknown>) => analystViewsForModel(this.deps.analysts!, args, quotes, now()) } : {}),
+      ...(this.deps.nfts ? { nft_stats: (args: Record<string, unknown>) => nftStatsForModel(this.deps.nfts!, args) } : {}),
       stress_test: async (args) => {
         if (draft) return { error: 'One stress test per message; this one already has a card.' };
         const text = typeof args.take === 'string' ? args.take.trim() : '';
@@ -633,7 +661,7 @@ export class ToolKit {
 }
 
 /** Results that mean "no such asset", as opposed to a feed being down. */
-const NOT_FOUND = /no price history|couldn't find|not found|no live|not a binance|no newsletter|no market/i;
+const NOT_FOUND = /no price history|couldn't find|not found|no live|not a binance|no newsletter|no market|no nft collection/i;
 
 /**
  * A second chance for names: when a lookup finds nothing, the model is told to try again with the ticker it
@@ -647,7 +675,8 @@ function withRetryHint(result: unknown): unknown {
     ? {
         ...r,
         retry:
-          'If the member meant a coin or stock you know by another name, or misspelled it (Hyperliquid or "hyperliwui" is HYPE, Chainlink is LINK), call this tool again now with the ticker. Only if you cannot tell which asset they mean, ask them.',
+          'If the member meant a coin or stock you know by another name, or misspelled it (Hyperliquid or "hyperliwui" is HYPE, Chainlink is LINK), call this tool again now with the ticker. ' +
+          'For an NFT collection, try again with its full name (BAYC is "Bored Ape Yacht Club", pudgies is "Pudgy Penguins"). Only if you cannot tell what they mean, ask them.',
       }
     : result;
 }
@@ -740,6 +769,61 @@ async function analystViewsForModel(store: AnalystStore, args: Record<string, un
     strongest_calls: calls.map(call),
     note: 'Source: DripStack. Name the writer and newsletter; quote at most one short line; these are views, not advice.',
   };
+}
+
+/** An amount in a collection's own coin: "2.34 ETH", "250 SOSO". */
+function coinAmount(n: number, currency: string): string {
+  const digits = n >= 1000 ? 0 : n >= 10 ? 1 : n >= 1 ? 2 : 4;
+  return `${Number(n.toFixed(digits)).toLocaleString('en-US', { maximumFractionDigits: digits })} ${currency}`;
+}
+
+function nftForModel(s: NftSnapshot) {
+  const both = (native: number | null, usd: number | null) =>
+    native === null ? null : `${coinAmount(native, s.currency)}${usd !== null ? ` (about ${usd >= 100 ? formatUsd(usd) : `$${usd.toFixed(2)}`})` : ''}`;
+  const changes = Object.fromEntries(
+    (
+      [
+        ['24h', s.change24h],
+        ['7d', s.change7d],
+        ['30d', s.change30d],
+      ] as const
+    ).flatMap(([k, v]) => (v === null || v === undefined ? [] : [[k, signedPct(v)]])),
+  );
+  return {
+    collection: s.symbol && s.symbol !== s.name ? `${s.name} (${s.symbol})` : s.name,
+    ...(s.chain ? { chain: s.chain } : {}),
+    floor: both(s.floor, s.floorUsd) ?? 'no floor (nothing listed)',
+    ...(Object.keys(changes).length ? { floor_change: changes } : {}),
+    ...(s.volume24h !== null ? { volume_24h: both(s.volume24h, s.volume24hUsd) } : {}),
+    ...(s.sales24h !== null ? { sales_24h: s.sales24h } : {}),
+    ...(s.volumeTotal !== null ? { volume_all_time: coinAmount(s.volumeTotal, s.currency) } : {}),
+    ...(s.marketCapUsd !== null ? { market_cap: formatUsd(s.marketCapUsd) } : {}),
+    ...(s.owners !== null ? { owners: s.owners } : {}),
+    ...(s.supply !== null ? { supply: s.supply } : {}),
+    ...(s.listed !== null ? { listed: s.listed } : {}),
+    read_at: utcLabel(s.at),
+    source: s.source,
+    ...(s.url ? { link: s.url } : {}),
+  };
+}
+
+/** NFT numbers for the model: one collection, or the biggest ones. Floor changes are in the collection's own coin. */
+async function nftStatsForModel(nfts: NftDesk, args: Record<string, unknown>) {
+  const name = typeof args.collection === 'string' ? args.collection.trim() : '';
+  const note = "Quote the floor in the collection's coin first, then USD, and say when it was read. Changes are in the collection's coin. Numbers, not advice: never say where a floor is heading.";
+  if (!name) {
+    const top = nfts.top(10);
+    if (!top.length) return { not_loaded: 'NFT data has not loaded yet on this server. Say that in one line; do not guess numbers.' };
+    return { biggest_collections: top.map(nftForModel), note };
+  }
+  const r = await nfts.lookup(name);
+  if ('unavailable' in r) {
+    return { error: `The NFT data source is busy, so "${name}" could not be read just now. Say that in one line and suggest asking again in a minute; do not guess numbers.` };
+  }
+  if ('notFound' in r) {
+    return { not_found: `No NFT collection found for "${name}".`, ...(r.others.length ? { similar_names: r.others } : {}) };
+  }
+  return { ...nftForModel(r.found), ...(r.others.length ? { other_collections_with_that_name: r.others } : {}), note };
 }
 
 function pageForModel(p: MyPage) {
