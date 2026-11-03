@@ -395,7 +395,7 @@ const NFT_TOOLS: Tool[] = [
       name: 'nft_stats',
       description:
         "An NFT collection's market: floor price (in the collection's own coin and in USD), floor change over 24h, 7d and 30d, 24h volume and sales, " +
-        "owners, supply, items listed, and when it was read. Covers CybeReator (this server's own collection, on ValueChain, traded on ValueMint in SOSO) " +
+        "owners, supply, items listed, and when it was read. Covers CybeReator (the server's collection, on ValueChain, traded on ValueMint in SOSO) " +
         'and thousands of collections on Ethereum, Solana, Base and other chains. Leave out collection for the biggest collections right now. ' +
         'Use for "what is the floor?", "how are pudgies doing?", "our floor", "CYBR floor", "biggest NFT collections". ' +
         'For NFT collections only: coins and tokens (PENGU, APE) go to get_price.',

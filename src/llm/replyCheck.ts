@@ -13,6 +13,10 @@ const KNOWLEDGE_UNIT = /^\s*(?:blocks?|coins?|tokens?|million|billion|years?|mon
 /** Talking about the machinery: "the tool won't tell me", "my tools", "the tool result". */
 const TOOL_TALK = /\b(the|my|this|that) tools?\b|\btool (result|call|output)s?\b/i;
 /** Gendered pronouns for people. Quoted text (a headline, an analyst's words) is left alone. */
+/** Market-depth commentary on an NFT collection: "thin", "illiquid", "only 20 listed", "low volume". */
+const NFT_DEPTH = /\b(thin|thinly|illiquid|liquidity|low volume|light volume|only \d[\d,]* (?:are |of [\d,]+ (?:items |pieces )?(?:are )?)?listed)\b/i;
+/** The member asked about depth themselves, so talking about it is the answer. */
+const ASKED_DEPTH = /\b(listed|listing|listings|liquid|liquidity|volume|sales|sold|thin|depth|for sale)\b/i;
 const PRONOUN = /\b(he|she|him|his|hers|herself|himself)\b|他|她/i;
 const QUOTED = /["“”「」][^"“”「」]*["“”「」]/g;
 
@@ -86,6 +90,9 @@ export function replyProblems(reply: string, evidence: { request: string; toolsU
   }
   const word = BETTING.exec(reply)?.[0];
   if (word) problems.push(`Don't use the word "${word}", not even to deny it. Takes are a public record; nothing goes in or out.`);
+  if (evidence.toolsUsed.includes('nft_stats') && NFT_DEPTH.test(reply) && !ASKED_DEPTH.test(evidence.request)) {
+    problems.push("Answer what was asked. Leave out commentary on listings, thin markets, liquidity or volume unless the member asked about it.");
+  }
   if (PRONOUN.test(reply.replace(QUOTED, ''))) problems.push('Never guess anyone\'s gender: no he, she, him or his (in Chinese, no 他 or 她). Use their name or "they".');
   if (TOOL_TALK.test(reply)) problems.push("Don't mention tools or tool results; say what you can and can't see in plain words (\"I can't see the current rate\").");
   if (RATING_THEN_POINTS.test(reply)) problems.push('Never put a rating next to points ("13%… +87"). Give the rating alone; points live on the member\'s own page.');

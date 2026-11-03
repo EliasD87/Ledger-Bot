@@ -12,6 +12,9 @@ import { MarketContext } from '../src/analysis/context.js';
 import { DripStack } from '../src/analysts/dripstack.js';
 import { AnalystRefresher } from '../src/analysts/refresher.js';
 import { AnalystStore } from '../src/analysts/store.js';
+import { NftDesk } from '../src/nfts/desk.js';
+import { NftSources } from '../src/nfts/sources.js';
+import { NftStore } from '../src/nfts/store.js';
 import { WebNews } from '../src/news/webNews.js';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { AlertStore } from '../src/alerts/store.js';
@@ -87,6 +90,14 @@ const context = new MarketContext({ history, news });
 // Analyst calls: one sync up front (as the server's background sync would have done), then read from the store.
 const analysts = config.dripstackApiKey ? new AnalystStore(db) : undefined;
 if (analysts) await new AnalystRefresher({ client: new DripStack({ apiKey: config.dripstackApiKey! }), store: analysts }).tick();
+// NFT collections: chats read stored readings (the store fills as collections are asked about).
+const nfts = new NftDesk({
+  store: new NftStore(db),
+  sources: new NftSources({
+    coingeckoKey: config.coingeckoApiKey,
+    usd: async (coin) => (await crypto.stats24h([`${coin}USDT`]))[`${coin}USDT`]?.price ?? null,
+  }),
+});
 const evidence = new EvidenceBuilder({ history, desk, news, context, analysts });
 const measure = new Measure({ history, crypto, stocks, desk });
 const charts = new Charts({ history, desk });
@@ -140,6 +151,7 @@ for (const s of scenarios) {
     news,
     context,
     analysts,
+    nfts,
   });
   const thread: ThreadMessage[] = [];
   const turns = [];
