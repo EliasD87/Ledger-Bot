@@ -163,6 +163,30 @@ export class NftDesk {
     return { found: this.withChanges(reading), others };
   }
 
+  /**
+   * A collection's floor now, for takes: its latest stored reading, if it's recent enough to judge by
+   * (the sync refreshes takes' collections at least every 3 hours). Null if there's none.
+   */
+  floorNow(key: string): number | null {
+    const s = this.deps.store.latest(key);
+    return s?.floor && this.now() - s.at <= REFRESH + HOUR ? s.floor : null;
+  }
+
+  /** The lowest and highest floor read between two moments, for takes that count on touch. */
+  floorRange(key: string, from: number, to: number): { high: number; low: number } | null {
+    return this.deps.store.floorRange(key, from, to);
+  }
+
+  /** Ledger's own daily floor history for a collection, oldest first. */
+  dailyFloors(key: string): { date: string; close: number }[] {
+    return this.deps.store.dailyFloors(key);
+  }
+
+  /** Keeps a collection on the sync list (an open take on it counts as asking about it). */
+  follow(key: string): void {
+    this.deps.store.markAsked(key, this.now());
+  }
+
   /** The biggest collections' latest readings, CybeReator first. */
   top(limit = 10): NftSnapshot[] {
     return this.deps.store.top(limit).map((s) => this.withChanges(s));

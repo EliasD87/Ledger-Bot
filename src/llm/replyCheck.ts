@@ -13,9 +13,8 @@ const KNOWLEDGE_UNIT = /^\s*(?:blocks?|coins?|tokens?|million|billion|years?|mon
 /** Talking about the machinery: "the tool won't tell me", "my tools", "the tool result". */
 const TOOL_TALK = /\b(the|my|this|that) tools?\b|\btool (result|call|output)s?\b/i;
 /** Gendered pronouns for people. Quoted text (a headline, an analyst's words) is left alone. */
-/** Market-depth commentary on an NFT collection: "thin", "illiquid", "only 20 listed", "low volume". */
-const NFT_DEPTH = /\b(thin|thinly|illiquid|liquidity|low volume|light volume|only \d[\d,]* (?:are |of [\d,]+ (?:items |pieces )?(?:are )?)?listed)\b/i;
-/** The member asked about depth themselves, so talking about it is the answer. */
+/** Market-depth commentary on an NFT collection: "thin", "illiquid", "20 of the 3,885 listed", "a jump from a low base". */
+const NFT_DEPTH = /\b(thin|thinly|illiquid|liquidity|low volume|light volume|low base)\b|\b\d[\d,]*\s+(?:of\s+(?:the\s+)?[\d,]+\s+)?(?:items?\s+|pieces?\s+|nfts?\s+)?(?:are\s+|were\s+)?(?:listed|for sale)\b/i;
 const ASKED_DEPTH = /\b(listed|listing|listings|liquid|liquidity|volume|sales|sold|thin|depth|for sale)\b/i;
 const PRONOUN = /\b(he|she|him|his|hers|herself|himself)\b|他|她/i;
 const QUOTED = /["“”「」][^"“”「」]*["“”「」]/g;

@@ -176,6 +176,25 @@ export class NftStore {
     return latest.floor / then.floor - 1;
   }
 
+  /** The lowest and highest floor read between two moments, or null if there was no reading. */
+  floorRange(key: string, from: number, to: number): { high: number; low: number } | null {
+    const row = this.db
+      .prepare('SELECT MAX(floor) AS high, MIN(floor) AS low FROM nft_snapshots WHERE key = ? AND at > ? AND at <= ? AND floor > 0')
+      .get(key, from, to) as { high: number | null; low: number | null };
+    return row.high !== null && row.low !== null ? { high: row.high, low: row.low } : null;
+  }
+
+  /** The floor at the end of each UTC day Ledger has readings for, oldest first: its own floor history. */
+  dailyFloors(key: string): { date: string; close: number }[] {
+    const rows = this.db
+      .prepare(
+        `SELECT at, floor FROM nft_snapshots WHERE key = ? AND floor > 0 AND rowid IN (
+           SELECT MAX(rowid) FROM nft_snapshots WHERE key = ? AND floor > 0 GROUP BY at / ${DAY}) ORDER BY at`,
+      )
+      .all(key, key) as { at: number; floor: number }[];
+    return rows.map((r) => ({ date: new Date(r.at).toISOString().slice(0, 10), close: r.floor }));
+  }
+
   /** The latest readings of the biggest collections, by market cap, with CybeReator first. */
   top(limit: number): NftSnapshot[] {
     const keys = this.db.prepare('SELECT key FROM nft_collections WHERE top = 1 OR pinned = 1').all() as { key: string }[];

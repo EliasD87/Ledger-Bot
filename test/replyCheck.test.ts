@@ -98,6 +98,7 @@ describe('NFT replies answer what was asked', () => {
   it('flags unasked talk of thin markets and listing counts', () => {
     expect(check('Pudgy floor is 2.32 ETH. 11 sales in 24 hours is thin.', 'is now a good time to buy a pudgy?').join()).toMatch(/Answer what was asked/);
     expect(check('Floor is 250 SOSO. Only 20 of 3,885 items are listed.', 'should I sweep the cybereator floor?').join()).toMatch(/Answer what was asked/);
+    expect(check('Floor is 250 SOSO, up 112%, with 20 of the 3,885 listed. That is a jump from a low base.', 'can you log this: cybereator floor above 300 soso within a week').join()).toMatch(/Answer what was asked/);
   });
   it('lets it through when the member asked, or when it is just the floor', () => {
     expect(check('20 are listed out of 3,885 supply.', 'how many cybereators are listed for sale?')).toEqual([]);

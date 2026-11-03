@@ -21,6 +21,11 @@ export interface ThesisSpec {
   /** Whether `asset` / `versus` are crypto or stocks, once looked up (tickers like AI exist as both). */
   assetKind?: 'crypto' | 'stock';
   versusKind?: 'crypto' | 'stock';
+  /**
+   * An NFT collection's floor instead of a coin or stock price (price and move takes only). `asset` is the
+   * collection's name; the target is in its own coin. Key and currency are filled in once it's looked up.
+   */
+  nft?: { key?: string; currency?: string };
 }
 
 export const MIN_DAYS = 1;
@@ -33,6 +38,7 @@ export function specProblem(s: ThesisSpec): string | null {
   if (s.kind === 'price' && !(s.target && s.target > 0)) return 'A price take needs a target price.';
   if (s.kind === 'relative' && !s.versus) return 'Measured against what?';
   if (s.kind === 'relative' && s.versus === s.asset) return 'That compares an asset with itself.';
+  if (s.nft && s.kind !== 'price' && s.kind !== 'move') return 'NFT floor takes are a target ("above 300 SOSO") or a move ("up 20%").';
   if (s.pct !== undefined && !(s.pct >= 0 && s.pct < 10)) return 'That percentage is out of range.';
   return null;
 }
@@ -43,6 +49,11 @@ const pct = (x: number) => `${Math.round(x * 1000) / 10}%`;
 export function claimText(s: ThesisSpec, lang: Lang = 'en'): string {
   if (lang === 'zh') return claimTextZh(s);
   const p = s.pct ? ` ${pct(s.pct)}+` : '';
+  if (s.nft) {
+    return s.kind === 'price'
+      ? `${s.asset} floor ${s.direction === 'up' ? 'above' : 'below'} ${nftAmount(s.target!, s.nft.currency)} within ${days(s.horizonDays)}`
+      : `${s.asset} floor ${s.direction === 'up' ? 'up' : 'down'}${p} ${p ? 'within' : 'over'} ${days(s.horizonDays)}`;
+  }
   switch (s.kind) {
     case 'price':
       return `${s.asset} ${s.direction === 'up' ? 'above' : 'below'} ${formatPrice(s.target!)} within ${days(s.horizonDays)}`;
@@ -57,6 +68,7 @@ export function claimText(s: ThesisSpec, lang: Lang = 'en'): string {
 
 /** What gets measured, for labels: "SOL price", "SOL/ETH". */
 export function measureLabel(s: ThesisSpec): string {
+  if (s.nft) return `${s.asset} floor`;
   if (s.kind === 'relative') return `${s.asset}/${s.versus}`;
   if (s.kind === 'flows') return `${s.asset} ETF net flows`;
   return `${s.asset} price`;
@@ -116,6 +128,11 @@ export function neededChange(s: ThesisSpec, now: number): number | null {
 function claimTextZh(s: ThesisSpec): string {
   const when = daysZh(s.horizonDays);
   const p = s.pct ? ` ${pct(s.pct)} 以上` : '';
+  if (s.nft) {
+    return s.kind === 'price'
+      ? `${s.asset} 地板价${when}${s.direction === 'up' ? '高于' : '低于'} ${nftAmount(s.target!, s.nft.currency)}`
+      : `${s.asset} 地板价${when}${s.direction === 'up' ? '上涨' : '下跌'}${p}`;
+  }
   switch (s.kind) {
     case 'price':
       return `${s.asset} ${when}${s.direction === 'up' ? '高于' : '低于'} ${formatPrice(s.target!)}`;
@@ -126,6 +143,12 @@ function claimTextZh(s: ThesisSpec): string {
     case 'flows':
       return `${s.asset} 现货 ETF ${when}净${s.direction === 'up' ? '流入' : '流出'}`;
   }
+}
+
+/** An amount in a collection's own coin: "300 SOSO", "2.5 ETH". */
+export function nftAmount(n: number, currency?: string): string {
+  const digits = n >= 1000 ? 0 : n >= 10 ? 1 : n >= 1 ? 2 : 4;
+  return `${Number(n.toFixed(digits)).toLocaleString('en-US', { maximumFractionDigits: digits })}${currency ? ` ${currency}` : ''}`;
 }
 
 export function daysZh(n: number): string {

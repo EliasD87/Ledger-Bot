@@ -1,5 +1,6 @@
 import type { MarketHistory } from '../analysis/history.js';
 import type { Desk } from '../desk/desk.js';
+import type { NftDesk } from '../nfts/desk.js';
 import type { CryptoQuotes, StockQuotes } from '../quotes.js';
 import type { ThesisSpec } from './spec.js';
 import { held, reached, touchLevel } from './spec.js';
@@ -11,7 +12,14 @@ const isoDay = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 /** Reads a thesis's measure from live prices (with backups) or the stored ETF flows. */
 export class Measure {
   constructor(
-    private readonly deps: { history: MarketHistory; crypto: Pick<CryptoQuotes, 'stats24h'>; stocks: Pick<StockQuotes, 'stockQuotes'>; desk: Desk | null },
+    private readonly deps: {
+      history: MarketHistory;
+      crypto: Pick<CryptoQuotes, 'stats24h'>;
+      stocks: Pick<StockQuotes, 'stockQuotes'>;
+      desk: Desk | null;
+      /** Stored NFT floors, for NFT floor takes. */
+      nfts?: Pick<NftDesk, 'floorNow' | 'floorRange' | 'follow'>;
+    },
   ) {}
 
   /** The latest price of a crypto or stock ticker, or null. */
@@ -28,6 +36,11 @@ export class Measure {
 
   /** The measure now: price, ratio, or, for flows, net flows over the sessions since `since`. */
   async now(spec: ThesisSpec, since = 0): Promise<number | null> {
+    if (spec.nft) {
+      if (!spec.nft.key || !this.deps.nfts) return null;
+      this.deps.nfts.follow(spec.nft.key); // keeps the collection on the sync list while the take is open
+      return this.deps.nfts.floorNow(spec.nft.key);
+    }
     if (spec.kind === 'flows') return (await this.flows(spec.asset, since, Infinity))?.sum ?? null;
     const a = await this.price(spec.asset, spec.assetKind);
     if (a === null) return null;
@@ -38,6 +51,7 @@ export class Measure {
 
   /** The highest high and lowest low of a take's asset between two moments (hourly candles), or null. */
   async range(spec: ThesisSpec, from: number, to: number): Promise<{ high: number; low: number } | null> {
+    if (spec.nft) return spec.nft.key && this.deps.nfts ? this.deps.nfts.floorRange(spec.nft.key, from, to) : null;
     const asset = await this.deps.history.identify(spec.asset, spec.assetKind).catch(() => null);
     if (!asset || typeof this.deps.history.range !== 'function') return null;
     return this.deps.history.range(asset, from, to).catch(() => null);

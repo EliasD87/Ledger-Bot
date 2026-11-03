@@ -1,7 +1,7 @@
 import { ordinal } from './deskCards.js';
 import { ButtonBuilder, ButtonStyle, type ContainerBuilder } from 'discord.js';
 import { discordTime, formatPrice, formatUsd } from '../format.js';
-import { type ThesisSpec, measureLabel } from '../theses/spec.js';
+import { type ThesisSpec, measureLabel, nftAmount } from '../theses/spec.js';
 import { timeLeft } from '../theses/moments.js';
 import type { Leader, MomentKind, Record, Sides, Thesis, ThesisStatus } from '../theses/store.js';
 import type { Verdict } from '../theses/measure.js';
@@ -157,7 +157,8 @@ const WORDS = {
     netSoFar: '目前净额',
     onTrack: (ok: boolean) => (ok ? '目前在轨道上' : '目前还没到'),
     checksBack: (when: string) => `${when}复盘`,
-    measure: (s: ThesisSpec) => (s.kind === 'relative' ? `${s.asset}/${s.versus}` : s.kind === 'flows' ? `${s.asset} ETF 净流量` : `${s.asset} 价格`),
+    measure: (s: ThesisSpec) =>
+      s.nft ? `${s.asset} 地板价` : s.kind === 'relative' ? `${s.asset}/${s.versus}` : s.kind === 'flows' ? `${s.asset} ETF 净流量` : `${s.asset} 价格`,
     date: (ms: number) => `${new Date(ms).getUTCMonth() + 1}月${new Date(ms).getUTCDate()}日`,
     left: (checkAt: number, now: number) => {
       const days = (checkAt - now) / 86_400_000;
@@ -170,6 +171,7 @@ const wordsFor = (t: Thesis): Words => WORDS[t.analysis?.lang ?? 'en'] as Words;
 
 /** A measure value in its own units: a price, a ratio, or a flow total. */
 export function formatMeasure(spec: ThesisSpec, value: number): string {
+  if (spec.nft) return nftAmount(value, spec.nft.currency);
   if (spec.kind === 'flows') return formatUsd(value, true);
   if (spec.kind === 'relative') return value.toPrecision(4);
   return formatPrice(value);

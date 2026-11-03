@@ -98,8 +98,8 @@ const nfts = new NftDesk({
     usd: async (coin) => (await crypto.stats24h([`${coin}USDT`]))[`${coin}USDT`]?.price ?? null,
   }),
 });
-const evidence = new EvidenceBuilder({ history, desk, news, context, analysts });
-const measure = new Measure({ history, crypto, stocks, desk });
+const evidence = new EvidenceBuilder({ history, desk, news, context, analysts, nfts });
+const measure = new Measure({ history, crypto, stocks, desk, nfts });
 const charts = new Charts({ history, desk });
 
 // The owner's real ID, so their records in a copied database show up; everyone else gets a stable fake one.

@@ -80,11 +80,11 @@ const nfts = new NftDesk({
     usd: async (coin) => (await crypto.stats24h([`${coin}USDT`]))[`${coin}USDT`]?.price ?? null,
   }),
 });
-const evidence = new EvidenceBuilder({ history, desk, news, context, analysts });
+const evidence = new EvidenceBuilder({ history, desk, news, context, analysts, nfts });
 const renderer = new ChartRenderer();
 const charts = new Charts({ history, desk, renderer });
 const theses = new ThesisStore(db);
-const measure = new Measure({ history, crypto, stocks, desk });
+const measure = new Measure({ history, crypto, stocks, desk, nfts });
 const settler = new ThesisSettler({ store: theses, measure });
 const take: TakeDeps = { llm, evidence, theses, spend, charts };
 

@@ -3,9 +3,15 @@ import { openDb } from '../src/db/index.js';
 import { NftDesk } from '../src/nfts/desk.js';
 import { NftSources, fromWei, parseValueMintSeed } from '../src/nfts/sources.js';
 import { CYBEREATOR, NftStore } from '../src/nfts/store.js';
+import { EvidenceBuilder } from '../src/analysis/evidence.js';
+import { formatMeasure } from '../src/discord/thesisCards.js';
+import { Measure, ThesisSettler } from '../src/theses/measure.js';
+import { claimText, measureLabel, specProblem } from '../src/theses/spec.js';
+import { type Analysis, ThesisStore } from '../src/theses/store.js';
 import { ToolKit } from '../src/tools.js';
 
 const MINUTE = 60_000;
+const ANALYSIS: Analysis = { assumptions: [], argument: { for: [], against: [], kill: 'x', history: 'x', lean: 'even', verdict: 'x' }, facts: [], sources: [] };
 const DAY = 86_400_000;
 const NOW = Date.UTC(2026, 10, 3, 12);
 const CYBR = CYBEREATOR.key.slice(3);
@@ -224,5 +230,49 @@ describe('nft_stats', () => {
     const r = await run({ collection: 'zzz apes' });
     expect(r.not_found).toMatch(/No NFT collection/);
     expect(r.retry).toMatch(/Bored Ape Yacht Club/);
+  });
+});
+
+describe('NFT floor takes', () => {
+  const take = { kind: 'price', asset: 'CybeReator', nft: {}, direction: 'up', target: 300, horizonDays: 7 } as const;
+
+  it('reads as a floor claim in the collection coin, in English and Chinese', () => {
+    const spec = { ...take, nft: { key: CYBEREATOR.key, currency: 'SOSO' } };
+    expect(claimText(spec)).toBe('CybeReator floor above 300 SOSO within a week');
+    expect(claimText(spec, 'zh')).toBe('CybeReator 地板价一周内高于 300 SOSO');
+    expect(claimText({ ...spec, kind: 'move', pct: 0.2, target: undefined })).toBe('CybeReator floor up 20%+ within a week');
+    expect(measureLabel(spec)).toBe('CybeReator floor');
+    expect(formatMeasure(spec, 250)).toBe('250 SOSO');
+    expect(specProblem({ ...take, kind: 'relative', versus: 'X' })).toMatch(/NFT floor takes/);
+  });
+
+  it('builds evidence from the stored floor and matches the collection', async () => {
+    const { desk } = setup();
+    await desk.tick();
+    const evidence = new EvidenceBuilder({ history: {} as never, desk: null, nfts: desk });
+    const e = await evidence.forThesis(take);
+    if ('error' in e) throw new Error(e.error);
+    expect(e.nft).toEqual({ key: CYBEREATOR.key, name: 'Cybereator', currency: 'SOSO' });
+    expect(e.start).toBeCloseTo(250, 4);
+    expect(e.facts.map((f) => f.text).join(' ')).toMatch(/needs \+20\.0% from 250 SOSO within 7 days/);
+    expect(e.facts.map((f) => f.text).join(' ')).toMatch(/too few for a base rate/);
+  });
+
+  it('logs at the stored floor and settles the moment a reading touches the target', async () => {
+    const { desk, store, at } = setup();
+    await desk.tick();
+    const theses = new ThesisStore(openDb(':memory:'));
+    const spec = { ...take, asset: 'Cybereator', nft: { key: CYBEREATOR.key, currency: 'SOSO' } };
+    const measure = new Measure({ history: {} as never, crypto: {} as never, stocks: {} as never, desk: null, nfts: desk });
+    expect(await measure.now(spec)).toBeCloseTo(250, 4);
+    const t = theses.createDraft({ guildId: 'g', channelId: 'c', authorId: 'elias', take: 'x', claim: claimText(spec), spec, analysis: ANALYSIS, now: NOW });
+    theses.log(t.id, 250, NOW);
+    const reading = { ...store.latest(CYBEREATOR.key)!, floor: 310, at: NOW + 2 * 3_600_000 }; // a spike to 310 two hours in
+    store.record(reading);
+    store.record({ ...reading, floor: 260, at: NOW + 3 * 3_600_000 }); // and back down
+    at(NOW + 3 * 3_600_000);
+    const settler = new ThesisSettler({ store: theses, measure, now: () => NOW + 3 * 3_600_000 });
+    const { settled } = await settler.tick();
+    expect(settled.map((v) => [v.held, v.endValue])).toEqual([[true, 310]]);
   });
 });

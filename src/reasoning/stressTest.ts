@@ -63,8 +63,9 @@ export async function stressTestSpec(deps: Deps, take: string, author: string, g
   const evidence = await deps.evidence.forThesis(parsed.spec);
   if ('error' in evidence) return { ok: false, reason: 'no-data', message: evidence.error };
   const [first, second] = evidence.histories;
-  const spec: ThesisSpec =
-    parsed.spec.kind === 'flows' || !first
+  const spec: ThesisSpec = evidence.nft
+    ? { ...parsed.spec, asset: evidence.nft.name, nft: { key: evidence.nft.key, currency: evidence.nft.currency } }
+    : parsed.spec.kind === 'flows' || !first
       ? parsed.spec
       : {
           ...parsed.spec,
@@ -84,10 +85,11 @@ export async function stressTestSpec(deps: Deps, take: string, author: string, g
 const UNDERSTAND = `You turn a Discord member's market take into a testable thesis. Reply with one json object only.
 
 Kinds:
-- price: an asset ends above or below a target price at the end of the horizon. {"kind":"price","asset":"BTC","direction":"up","target":100000,"horizonDays":60}
+- price: an asset reaches a target price, above or below, within the horizon (it counts the moment it gets there). {"kind":"price","asset":"BTC","direction":"up","target":100000,"horizonDays":60}
 - move: an asset rises or falls, optionally by at least pct (a fraction: 0.1 = 10%). {"kind":"move","asset":"NVDA","direction":"up","pct":0.1,"horizonDays":30}
 - relative: one asset beats (up) or trails (down) another, optionally by at least pct. {"kind":"relative","asset":"SOL","versus":"ETH","direction":"up","horizonDays":30}
 - flows: US spot ETFs for an asset see net inflows (up) or outflows (down) over the horizon. Only for: ${ETF_ASSETS.join(', ')}. {"kind":"flows","asset":"BTC","direction":"up","horizonDays":7}
+- NFT floor: an NFT collection's floor price, as price (target in the collection's own coin, e.g. SOSO or ETH) or move. Add "nft":true and use the collection's name as asset. {"kind":"price","asset":"CybeReator","nft":true,"direction":"up","target":300,"horizonDays":7} or {"kind":"move","asset":"Pudgy Penguins","nft":true,"direction":"down","pct":0.2,"horizonDays":30}. "floor" means NFTs: "pudgy floor" is the Pudgy Penguins collection, not the PENGU coin.
 
 Assets are tickers: crypto (BTC, ETH, SOL, PEPE...) or US stocks and ETFs (NVDA, MSTR, COIN, SPY...). "bitcoin" is BTC, "microstrategy"/"strategy" is MSTR, "the nasdaq" is QQQ. If you aren't sure of a ticker (new listings, smaller names), write the name as the member did ("spacex"); it gets looked up.
 Commodities use these symbols: WTI (oil, crude, CL), BRENT, GOLD, SILVER, NATGAS, COPPER.
@@ -115,13 +117,16 @@ async function understand(
     { maxTokens: 400, json: true, temperature: 0.2 },
   );
   deps.onUsage(turn.usage);
-  const out = parseJson(turn.text) as { type?: string; spec?: Partial<ThesisSpec>; assumptions?: unknown; question?: string; why?: string } | null;
+  const out = parseJson(turn.text) as { type?: string; spec?: Omit<Partial<ThesisSpec>, 'nft'> & { nft?: unknown }; assumptions?: unknown; question?: string; why?: string } | null;
   if (!out || out.type === 'not_a_take') return { ok: false, reason: 'not-a-take', message: out?.why ?? "That doesn't read as a take on where a market goes." };
   if (out.type === 'needs_detail') return { ok: false, reason: 'needs-detail', message: out.question ?? 'Which asset do you mean?' };
   const s = out.spec ?? {};
+  const nft = s.nft === true || (typeof s.nft === 'object' && s.nft !== null);
   const spec: ThesisSpec = {
     kind: (['price', 'move', 'relative', 'flows'] as const).find((k) => k === s.kind) ?? 'move',
-    asset: String(s.asset ?? '').toUpperCase().replace(/^\$/, ''),
+    // Collection names keep their case ("Pudgy Penguins"); tickers are upper case.
+    asset: nft ? String(s.asset ?? '').trim() : String(s.asset ?? '').toUpperCase().replace(/^\$/, ''),
+    ...(nft ? { nft: {} } : {}),
     ...(s.versus ? { versus: String(s.versus).toUpperCase().replace(/^\$/, '') } : {}),
     direction: s.direction === 'down' ? 'down' : 'up',
     ...(typeof s.target === 'number' ? { target: s.target } : {}),

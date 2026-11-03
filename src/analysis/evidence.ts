@@ -3,7 +3,8 @@ import type { MarketContext } from './context.js';
 import { type WebNews, newsQuery } from '../news/webNews.js';
 import { leadingFund, type Desk, ETF_ASSETS } from '../desk/desk.js';
 import { formatPrice, formatUsd } from '../format.js';
-import { type ThesisSpec, measureLabel, neededChange, touchLevel } from '../theses/spec.js';
+import { type ThesisSpec, measureLabel, neededChange, nftAmount, touchLevel } from '../theses/spec.js';
+import type { NftDesk } from '../nfts/desk.js';
 import type { AssetKind, History, MarketHistory } from './history.js';
 import {
   type Analogs,
@@ -39,6 +40,8 @@ export interface Evidence {
   sources: string[];
   /** The price histories behind it, for charts. Not stored with the thesis. */
   histories: History[];
+  /** For an NFT floor take: the collection it was matched to. */
+  nft?: { key: string; name: string; currency: string };
   /** How newsletter and podcast analysts split on each asset, when any covered it. */
   analysts?: AnalystSnapshot[];
 }
@@ -67,6 +70,8 @@ export class EvidenceBuilder {
       context?: MarketContext;
       /** Analyst calls synced from DripStack; read only, never fetched here. */
       analysts?: AnalystStore;
+      /** NFT collections' stored floors, for NFT floor takes. */
+      nfts?: NftDesk;
       now?: () => number;
     },
   ) {}
@@ -89,6 +94,7 @@ export class EvidenceBuilder {
 
   /** Evidence for a specific take, including how often what it needs has happened before. */
   async forThesis(spec: ThesisSpec): Promise<Evidence | { error: string }> {
+    if (spec.nft) return this.forNft(spec);
     const histories = await this.load(spec.kind === 'relative' ? [spec.asset, spec.versus!] : [spec.asset], [spec.assetKind, spec.versusKind]);
     if ('error' in histories) return histories;
     const facts = new FactList();
@@ -146,6 +152,7 @@ export class EvidenceBuilder {
    */
   async timeframes(spec: ThesisSpec, horizons: number[]): Promise<{ days: number; rate: number; windows: number; median: number }[] | { error: string }> {
     if (spec.kind === 'flows') return { error: 'Timeframes are for price takes; ETF flows have no long history to compare.' };
+    if (spec.nft) return { error: 'Not enough NFT floor history yet to compare timeframes.' };
     const histories = await this.load(spec.kind === 'relative' ? [spec.asset, spec.versus!] : [spec.asset], [spec.assetKind, spec.versusKind]);
     if ('error' in histories) return histories;
     const series = spec.kind === 'relative' ? ratio(histories[0]!.closes, histories[1]!.closes) : histories[0]!.closes;
@@ -163,6 +170,64 @@ export class EvidenceBuilder {
       if (r) out.push({ days, rate: r.rate, windows: r.windows, median: r.median });
     }
     return out.length ? out : { error: 'Not enough history to compare timeframes.' };
+  }
+
+  /**
+   * Evidence for an NFT floor take, from the stored floors: where the floor is, how far the take needs it
+   * to go, its recent changes, and (once Ledger has a month or more of its own daily floors) how often a
+   * move that size happened inside the window.
+   */
+  private async forNft(spec: ThesisSpec): Promise<Evidence | { error: string }> {
+    const nfts = this.deps.nfts;
+    if (!nfts) return { error: 'NFT data is off on this server.' };
+    const found = await nfts.lookup(spec.asset);
+    if ('loading' in found) return { error: `${spec.asset} isn't loaded yet; it's queued and should be ready in about 10 minutes.` };
+    if ('notFound' in found) return { error: `No NFT collection found for ${spec.asset}.` };
+    const s = found.found;
+    if (!s.floor) return { error: `${s.name} has no floor right now (nothing listed), so there's nothing to measure from.` };
+    const name = s.name;
+    const money = (n: number) => nftAmount(n, s.currency);
+    const facts = new FactList();
+    const changes = (
+      [
+        ['24h', s.change24h],
+        ['7d', s.change7d],
+        ['30d', s.change30d],
+      ] as const
+    ).flatMap(([k, v]) => (v === null || v === undefined ? [] : [`${k} ${pct(v)}`]));
+    facts.add(
+      `${name} floor is ${money(s.floor)}${s.floorUsd ? ` (about ${formatUsd(s.floorUsd)})` : ''}${changes.length ? `: ${changes.join(', ')}` : ''}. Read ${new Date(s.at).toISOString().slice(11, 16)} UTC from ${s.source}.`,
+    );
+    const resolved: ThesisSpec = { ...spec, asset: name, nft: { key: s.key, currency: s.currency } };
+    const need = neededChange(resolved, s.floor);
+    const h = spec.horizonDays;
+    const up = spec.direction === 'up';
+    if (spec.kind === 'price') {
+      facts.add(`To get ${up ? 'above' : 'below'} ${money(spec.target!)} it needs ${pct(need!)} from ${money(s.floor)} within ${h} days; it counts as soon as the floor gets there.`);
+    }
+    let rate: BaseRate | null = null;
+    const daily = nfts.dailyFloors(s.key);
+    if (need !== null && daily.length >= h + 30) {
+      rate = touchRate(daily, h, need, up);
+      if (rate) {
+        facts.add(
+          `Base rate: the ${name} floor ${up ? 'rose' : 'fell'} ${pct(need)} or more at some point within ${h} days in ${share(rate.rate)} of ${rate.windows} windows of Ledger's own daily readings since ${month(rate.since)}.`,
+        );
+      }
+    } else {
+      facts.add(`Ledger has ${daily.length} day${daily.length === 1 ? '' : 's'} of its own ${name} floor readings, too few for a base rate.`);
+    }
+    nfts.follow(s.key);
+    return {
+      facts: facts.all,
+      start: s.floor,
+      measure: measureLabel(resolved),
+      baseRate: rate,
+      analogs: null,
+      sources: [s.source],
+      histories: [],
+      nft: { key: s.key, name, currency: s.currency },
+    };
   }
 
   private async load(symbols: string[], kinds: (AssetKind | undefined)[] = []): Promise<History[] | { error: string }> {

@@ -20,7 +20,7 @@ import type { MyPage } from './pages/myPage.js';
 import type { SoSoValue, StockQuote } from './sosovalue.js';
 import type { Measure } from './theses/measure.js';
 import { type TakeDeps, draftTake } from './theses/service.js';
-import { held, measureLabel } from './theses/spec.js';
+import { held, measureLabel, nftAmount } from './theses/spec.js';
 import type { Thesis, ThesisStore } from './theses/store.js';
 
 const HOUR = 60 * 60 * 1000;
@@ -102,7 +102,8 @@ const TAKE_TOOLS: Tool[] = [
       name: 'stress_test',
       description:
         'Stress-test a member\'s take with real data. Use it whenever the speaker states a view on where a market goes or how assets compare ' +
-        '("sol flips eth this cycle", "nvda dip is a gift", "btc 100k by christmas", "eth is dead", "btc etfs bleed all week"), or asks you to ' +
+        '("sol flips eth this cycle", "nvda dip is a gift", "btc 100k by christmas", "eth is dead", "btc etfs bleed all week", ' +
+        '"cybereator floor above 300 soso this week"), or asks you to ' +
         'argue with / test / roast their take. Pass their words. It builds the full analysis card (for, against, what kills it, history) with a ' +
         '"Log it" button; your own text should then be one short line. One per message.',
       parameters: {
@@ -695,6 +696,7 @@ function thesisForModel(t: Thesis, members: Members) {
 }
 
 function formatValue(t: Thesis, v: number): string {
+  if (t.spec.nft) return nftAmount(v, t.spec.nft.currency);
   return t.spec.kind === 'flows' ? formatUsd(v, true) : t.spec.kind === 'relative' ? v.toPrecision(4) : formatPrice(v);
 }
 
