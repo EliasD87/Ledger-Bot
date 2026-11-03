@@ -75,10 +75,15 @@ export async function stressTestSpec(deps: Deps, take: string, author: string, g
         };
 
   const claim = claimText(spec, lang);
+  // An NFT floor take gets a plain card (where the floor is and what the take needs), not a debate.
+  if (spec.nft) return { ok: true, test: { spec, claim, assumptions, evidence, argument: NO_DEBATE, lang } };
   const argument = await argue(deps, { take, author, claim, assumptions, evidence, lang });
   if (!argument) return { ok: false, reason: 'failed', message: lang === 'zh' ? '这次没能从数据里整理出清楚的论证。' : "Couldn't build a clean argument from the data this time." };
   return { ok: true, test: { spec, claim, assumptions, evidence, argument, lang } };
 }
+
+/** The argument of a take that isn't debated (NFT floor takes). */
+const NO_DEBATE: Argument = { for: [], against: [], kill: '', history: '', lean: 'even', verdict: '' };
 
 // --- 1. Understand ---
 

@@ -509,6 +509,14 @@ export class ToolKit {
         draft = result.thesis;
         charts.splice(0, charts.length, ...(result.chart ? [result.chart] : []));
         const a = draft.analysis.argument;
+        if (draft.spec.nft) {
+          return {
+            card: `Floor take drafted for: ${draft.claim}`,
+            read_as: draft.analysis.assumptions,
+            checks_back_if_logged_now: utcLabel(now() + draft.spec.horizonDays * 86_400_000),
+            note: 'An NFT floor take: the card under your reply shows the floor and what the take needs, with a "Log it" button. Reply with ONE short sentence inviting them to log it if they stand by it. No analysis, no numbers, no other tools.',
+          };
+        }
         return {
           card: `Stress test drafted for: ${draft.claim}`,
           read_as: draft.analysis.assumptions,

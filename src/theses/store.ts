@@ -21,6 +21,8 @@ export interface Analysis {
   lang?: Lang;
   /** How newsletter and podcast analysts split on the assets when it was tested. */
   analysts?: AnalystSnapshot[];
+  /** NFT floor takes: the floor when it was tested (in the collection's coin, and in USD if known). */
+  floor?: { value: number; usd: number | null };
 }
 
 export interface Thesis {

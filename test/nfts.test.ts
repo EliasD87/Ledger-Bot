@@ -4,7 +4,8 @@ import { NftDesk } from '../src/nfts/desk.js';
 import { NftSources, fromWei, parseValueMintSeed } from '../src/nfts/sources.js';
 import { CYBEREATOR, NftStore } from '../src/nfts/store.js';
 import { EvidenceBuilder } from '../src/analysis/evidence.js';
-import { formatMeasure } from '../src/discord/thesisCards.js';
+import { Charts } from '../src/charts/maker.js';
+import { floorTakeLine, formatMeasure, thesisCard } from '../src/discord/thesisCards.js';
 import { Measure, ThesisSettler } from '../src/theses/measure.js';
 import { claimText, measureLabel, specProblem } from '../src/theses/spec.js';
 import { type Analysis, ThesisStore } from '../src/theses/store.js';
@@ -252,7 +253,7 @@ describe('NFT floor takes', () => {
     const evidence = new EvidenceBuilder({ history: {} as never, desk: null, nfts: desk });
     const e = await evidence.forThesis(take);
     if ('error' in e) throw new Error(e.error);
-    expect(e.nft).toEqual({ key: CYBEREATOR.key, name: 'Cybereator', currency: 'SOSO' });
+    expect(e.nft).toMatchObject({ key: CYBEREATOR.key, name: 'Cybereator', currency: 'SOSO' });
     expect(e.start).toBeCloseTo(250, 4);
     expect(e.facts.map((f) => f.text).join(' ')).toMatch(/needs \+20\.0% from 250 SOSO within 7 days/);
     expect(e.facts.map((f) => f.text).join(' ')).toMatch(/too few for a base rate/);
@@ -274,5 +275,33 @@ describe('NFT floor takes', () => {
     const settler = new ThesisSettler({ store: theses, measure, now: () => NOW + 3 * 3_600_000 });
     const { settled } = await settler.tick();
     expect(settled.map((v) => [v.held, v.endValue])).toEqual([[true, 310]]);
+  });
+});
+
+describe('the NFT floor take card', () => {
+  const spec = { kind: 'price', asset: 'CybeReator', nft: { key: CYBEREATOR.key, currency: 'SOSO' }, direction: 'up', target: 300, horizonDays: 5 } as const;
+  const draft = (lang: 'en' | 'zh' = 'en') => {
+    const theses = new ThesisStore(openDb(':memory:'));
+    return theses.createDraft({
+      guildId: 'g', channelId: 'c', authorId: 'elias', take: 'cybereator floor above 300 soso within a week', claim: claimText(spec, lang), spec,
+      analysis: { ...ANALYSIS, argument: { ...ANALYSIS.argument, kill: '', history: '', verdict: '' }, sources: ['ValueMint'], lang, floor: { value: 250, usd: 78.2 } }, now: NOW,
+    });
+  };
+  const text = (t: ReturnType<typeof draft>) => JSON.stringify(thesisCard(t, { with: [], against: [] }));
+
+  it('shows the floor and what the take needs, with no debate and only Log it / Not now', () => {
+    const card = text(draft());
+    expect(card).toContain('Floor now:** 250 SOSO (about $78)');
+    expect(card).toContain('It needs +20.0% within 5 days');
+    for (const gone of ['**For**', '**Against**', 'What would prove it wrong', 'Evidence is split', 'Other timeframes', 'Make it sharper']) expect(card).not.toContain(gone);
+    expect(card).toContain('Log it');
+    expect(text(draft('zh'))).toContain('需要在 5 天内 +20.0%');
+    expect(floorTakeLine(draft())).toBe('Here it is. Log it if you stand by it.'); // the line above it is written in code
+  });
+
+  it('draws no chart for an NFT take, or for a history too short to draw', async () => {
+    const charts = new Charts({ history: {} as never, desk: null });
+    expect(await charts.forThesis(spec, [])).toBeNull();
+    expect(await charts.forThesis({ kind: 'price', asset: 'NEW', direction: 'up', target: 2, horizonDays: 7 }, [])).toBeNull();
   });
 });

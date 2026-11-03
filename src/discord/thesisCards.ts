@@ -46,6 +46,9 @@ const WORDS = {
     loggedAt: (m: string, v: string, when: string) => `Logged at ${m} ${v} · checks back ${when}`,
     net: 'net',
     logIt: 'Log it',
+    floorNow: (v: string) => `**Floor now:** ${v}`,
+    floorLine: 'Here it is. Log it if you stand by it.',
+    floorNeeds: (change: string, days: number) => `It needs ${change} within ${days === 1 ? 'a day' : `${days} days`}, and counts as soon as the floor gets there.`,
     timeframes: 'Other timeframes',
     sharpen: 'Make it sharper',
     notNow: 'Not now',
@@ -110,6 +113,9 @@ const WORDS = {
     loggedAt: (m: string, v: string, when: string) => `记录时 ${m} ${v} · ${when}复盘`,
     net: '净',
     logIt: '记录',
+    floorNow: (v: string) => `**目前地板价：** ${v}`,
+    floorLine: '在这里。你有把握就点「记录」。',
+    floorNeeds: (change: string, days: number) => `需要在 ${days} 天内 ${change}，地板价一到就算。`,
     timeframes: '其他时间',
     sharpen: '更精确',
     notNow: '先不',
@@ -208,7 +214,7 @@ export function thesisContainer(t: Thesis, sides: Sides, opts: { chart?: boolean
     t.status === 'draft'
       ? row(
           button('log', t.id, w.logIt, ButtonStyle.Primary),
-          ...(t.spec.kind !== 'flows' ? [button('timeframes', t.id, w.timeframes), button('sharpen', t.id, w.sharpen)] : []),
+          ...(t.spec.kind !== 'flows' && !t.spec.nft ? [button('timeframes', t.id, w.timeframes), button('sharpen', t.id, w.sharpen)] : []),
           button('drop', t.id, w.notNow),
         )
       : t.status === 'open'
@@ -216,6 +222,28 @@ export function thesisContainer(t: Thesis, sides: Sides, opts: { chart?: boolean
         : null;
   const debate = sides.with.length + sides.against.length > 0;
   const duel = t.challengerId ? w.duel(who, `<@${t.challengerId}>`) : null;
+  // NFT floor takes have no debate: where the floor was when tested, and what the take needs from there.
+  const floor = t.spec.nft ? t.analysis.floor : undefined;
+  const need = floor ? (t.spec.kind === 'price' ? t.spec.target! / floor.value - 1 : (t.spec.direction === 'up' ? 1 : -1) * (t.spec.pct ?? 0)) : null;
+  const body = t.spec.nft
+    ? [
+        floor && w.floorNow(`${formatMeasure(t.spec, floor.value)}${floor.usd ? ` (about ${formatUsd(floor.usd)})` : ''}`),
+        need !== null && need !== 0 && w.floorNeeds(pct(need), t.spec.horizonDays),
+      ]
+    : [
+        divider(),
+        `**${w.for}**`,
+        ...a.for.map((p) => `· ${p.point}`),
+        `**${w.againstHeading}**`,
+        ...a.against.map((p) => `· ${p.point}`),
+        divider(),
+        a.kill && `**${w.kill}:** ${a.kill}`,
+        a.history && `**${w.history}:** ${a.history}`,
+        // Counted in code when it was tested: each analyst once, by their latest call.
+        !!t.analysis.analysts?.length &&
+          kicker(w.analysts(t.analysis.analysts[0]!.days, t.analysis.analysts.map((x) => w.analystSplit(x.ticker, x.bullish, x.bearish)).join(' · '))),
+        `**${w.lean[a.lean]}**${a.verdict ? ` _${a.verdict}_` : ''}`,
+      ];
 
   return card(EDGE[t.status], [
     kicker(status),
@@ -223,18 +251,7 @@ export function thesisContainer(t: Thesis, sides: Sides, opts: { chart?: boolean
     kicker(`${take}${readAs}`),
     timeline,
     opts.chart && picture(CHART_NAME, t.claim),
-    divider(),
-    `**${w.for}**`,
-    ...a.for.map((p) => `· ${p.point}`),
-    `**${w.againstHeading}**`,
-    ...a.against.map((p) => `· ${p.point}`),
-    divider(),
-    a.kill && `**${w.kill}:** ${a.kill}`,
-    a.history && `**${w.history}:** ${a.history}`,
-    // Counted in code when it was tested: each analyst once, by their latest call.
-    !!t.analysis.analysts?.length &&
-      kicker(w.analysts(t.analysis.analysts[0]!.days, t.analysis.analysts.map((x) => w.analystSplit(x.ticker, x.bullish, x.bearish)).join(' · '))),
-    `**${w.lean[a.lean]}**${a.verdict ? ` _${a.verdict}_` : ''}`,
+    ...body,
     (t.status !== 'draft' || debate) && divider(),
     t.status !== 'draft' && w.sides(sides.with.length, sides.against.length),
     duel,
@@ -246,6 +263,11 @@ export function thesisContainer(t: Thesis, sides: Sides, opts: { chart?: boolean
         : w.footer(t.analysis.sources.join(', ')),
     ),
   ]);
+}
+
+/** The line above an NFT floor take's card: written in code, since the card has no debate to react to. */
+export function floorTakeLine(t: Thesis): string {
+  return wordsFor(t).floorLine;
 }
 
 export function thesisCard(t: Thesis, sides: Sides, opts: { chart?: boolean } = {}) {

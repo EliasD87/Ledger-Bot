@@ -40,8 +40,8 @@ export interface Evidence {
   sources: string[];
   /** The price histories behind it, for charts. Not stored with the thesis. */
   histories: History[];
-  /** For an NFT floor take: the collection it was matched to. */
-  nft?: { key: string; name: string; currency: string };
+  /** For an NFT floor take: the collection it was matched to, and its floor in USD. */
+  nft?: { key: string; name: string; currency: string; floorUsd: number | null };
   /** How newsletter and podcast analysts split on each asset, when any covered it. */
   analysts?: AnalystSnapshot[];
 }
@@ -226,7 +226,7 @@ export class EvidenceBuilder {
       analogs: null,
       sources: [s.source],
       histories: [],
-      nft: { key: s.key, name, currency: s.currency },
+      nft: { key: s.key, name, currency: s.currency, floorUsd: s.floorUsd },
     };
   }
 

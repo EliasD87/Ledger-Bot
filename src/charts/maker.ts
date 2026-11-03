@@ -16,6 +16,7 @@ import {
   flowsChart,
   formChart,
   lookbackFor,
+  measuredSeries,
   progressChart,
   progressLeadFor,
   thesisChart,
@@ -65,6 +66,8 @@ export class Charts {
   /** The chart for a stress test: its recent past at the take's scale, the runway and what's on it; or ETF flows. */
   async forThesis(spec: ThesisSpec, histories: History[], lang: Lang = 'en'): Promise<ChartFile | null> {
     if (spec.kind === 'flows') return this.flows(spec.asset);
+    // No picture rather than an empty one: NFT floors have no long history, and neither do brand-new listings.
+    if (spec.nft || measuredSeries(spec, histories).length < 2) return null;
     const extras = await this.extras(histories, lookbackFor(spec.horizonDays), spec.kind === 'relative');
     extras.lang = lang;
     extras.events = await this.runwayEvents(this.now, this.now + spec.horizonDays * DAY, lang);
@@ -160,6 +163,7 @@ export class Charts {
   /** A logged thesis so far, with what's left on its runway. */
   async progress(t: Thesis, latest: number | null, now: number): Promise<ChartFile | null> {
     if (t.spec.kind === 'flows') return this.flows(t.spec.asset);
+    if (t.spec.nft) return null;
     const histories = await this.thesisHistories(t);
     if (!histories) return null;
     // Short takes are drawn from hourly prices, like their stress-test chart.
@@ -172,6 +176,7 @@ export class Charts {
   /** The check-back: the whole run, the range it had when logged, and where it finished. */
   async verdict(t: Thesis, endValue: number, held: boolean): Promise<ChartFile | null> {
     if (t.spec.kind === 'flows') return this.flows(t.spec.asset);
+    if (t.spec.nft) return null;
     const histories = await this.thesisHistories(t);
     if (!histories) return null;
     const span = (this.now - (t.startAt ?? this.now)) / DAY + progressLeadFor(t.spec.horizonDays);

@@ -61,6 +61,7 @@ function analysisOf(test: StressTest): Analysis {
     baseRate: test.evidence.baseRate?.rate ?? null,
     lang: test.lang,
     ...(test.evidence.analysts ? { analysts: test.evidence.analysts } : {}),
+    ...(test.evidence.nft && test.evidence.start !== null ? { floor: { value: test.evidence.start, usd: test.evidence.nft.floorUsd } } : {}),
   };
 }
 

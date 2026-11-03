@@ -11,7 +11,7 @@ import { LINES, PERSONA, PERSONA_EXAMPLES, contextLine } from '../persona.js';
 import type { ThesisStore } from '../theses/store.js';
 import type { ToolKit } from '../tools.js';
 import { cardCaption, postableReply, readableContent, roleMentionIds } from './text.js';
-import { thesisContainer } from './thesisCards.js';
+import { floorTakeLine, thesisContainer } from './thesisCards.js';
 import { type ThreadMessage, collectChain, toChatMessages } from './thread.js';
 import { cards, replacing, say } from './ui.js';
 
@@ -156,7 +156,7 @@ export class Conversation {
     const { draft } = session;
     const files = session.charts.map((c) => ({ attachment: c.data, name: c.name }));
     const cardPayload = draft
-      ? { ...cards([say(cardCaption(text)), thesisContainer(draft, { with: [], against: [] }, { chart: files.length > 0 })], { replyPing: true }), files }
+      ? { ...cards([say(cardCaption(draft.spec.nft ? floorTakeLine(draft) : text)), thesisContainer(draft, { with: [], against: [] }, { chart: files.length > 0 })], { replyPing: true }), files }
       : null;
     const payload = cardPayload ?? { content: text, files };
     // Into the "one moment" line if there is one (a plain message turns into cards); else a new reply.
