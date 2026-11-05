@@ -499,7 +499,7 @@ export class ToolKit {
         const text = typeof args.take === 'string' ? args.take.trim() : '';
         if (!text) return { error: 'What is the take?' };
         // The card follows the conversation's language, even if the model translated the take.
-        const result = await draftTake(take, { ...ctx, name: ctx.name ?? members.nameOf(ctx.userId) }, text, ctx.lang === 'zh' ? 'zh' : undefined);
+        const result = await draftTake(take, { ...ctx, name: ctx.name ?? members.nameOf(ctx.userId) }, text, ctx.lang);
         if (!result.ok) {
           return result.reason === 'not-a-take'
             ? { not_a_take: result.message, note: 'Answer them normally instead.' }

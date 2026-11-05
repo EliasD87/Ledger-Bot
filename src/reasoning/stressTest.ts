@@ -1,4 +1,4 @@
-import { type Lang, langOf } from '../lang.js';
+import { LANG_NAMES, type Lang, langOf } from '../lang.js';
 import type { Evidence, EvidenceBuilder } from '../analysis/evidence.js';
 import { ETF_ASSETS } from '../desk/desk.js';
 import type { ChatMessage, ChatModel, Usage } from '../llm/deepseek.js';
@@ -78,7 +78,7 @@ export async function stressTestSpec(deps: Deps, take: string, author: string, g
   // An NFT floor take gets a plain card (where the floor is and what the take needs), not a debate.
   if (spec.nft) return { ok: true, test: { spec, claim, assumptions, evidence, argument: NO_DEBATE, lang } };
   const argument = await argue(deps, { take, author, claim, assumptions, evidence, lang });
-  if (!argument) return { ok: false, reason: 'failed', message: lang === 'zh' ? '这次没能从数据里整理出清楚的论证。' : "Couldn't build a clean argument from the data this time." };
+  if (!argument) return { ok: false, reason: 'failed', message: NO_ARGUMENT[lang] };
   return { ok: true, test: { spec, claim, assumptions, evidence, argument, lang } };
 }
 
@@ -187,9 +187,9 @@ async function argue(
     {
       role: 'system',
       content:
-        input.lang === 'zh'
-          ? `${ARGUE}\nThe member wrote in Chinese: write every text field (points, kill, history, verdict) in natural, simple Simplified Chinese, the way people chat. Keep tickers and numbers exactly as they appear in the facts.`
-          : ARGUE,
+        input.lang === 'en'
+          ? ARGUE
+          : `${ARGUE}\nThe member wrote in ${LANG_NAMES[input.lang]}: write every text field (points, kill, history, verdict) in natural, simple ${LANG_NAMES[input.lang]}, the way people chat. Keep tickers and numbers exactly as they appear in the facts.`,
     },
     {
       role: 'user',
@@ -242,7 +242,7 @@ export function verify(raw: unknown, evidence: Evidence, claim: string): { argum
         problems.push(`${side} point ${i + 1} has numbers not in its cited facts: ${loose.join(', ')}.`);
         return [];
       }
-      if (BETTING.test(point) || ZH_BETTING.test(point)) {
+      if (BETTING.test(point) || OTHER_BETTING.test(point)) {
         problems.push(`${side} point ${i + 1} uses a betting word.`);
         return [];
       }
@@ -269,7 +269,7 @@ export function verify(raw: unknown, evidence: Evidence, claim: string): { argum
       problems.push(`${key} has numbers not in the facts: ${loose.join(', ')}.`);
       return '';
     }
-    if (BETTING.test(value) || ZH_BETTING.test(value)) {
+    if (BETTING.test(value) || OTHER_BETTING.test(value)) {
       problems.push(`${key} uses a betting word.`);
       return '';
     }
@@ -292,7 +292,16 @@ export function verify(raw: unknown, evidence: Evidence, claim: string): { argum
 }
 
 /** Betting words in Chinese (odds, bet, wager, gamble, payout, handicap). */
-const ZH_BETTING = /赔率|下注|押注|赌|彩金|盘口|赔付/;
+const OTHER_BETTING = /赔率|下注|押注|赌|彩金|盘口|赔付|賭け|オッズ|配当|\b(apostas?|apostar|apuestas?|cuotas?|probabilidades de pago)\b/i;
+
+/** When the argument step fails, in the member's language. */
+const NO_ARGUMENT: { [L in Lang]: string } = {
+  en: "Couldn't build a clean argument from the data this time.",
+  zh: '这次没能从数据里整理出清楚的论证。',
+  ja: '今回はデータからはっきりした論点をまとめられませんでした。',
+  pt: 'Não consegui montar um argumento claro com os dados desta vez.',
+  es: 'Esta vez no pude armar un argumento claro con los datos.',
+};
 
 /** He/she about the member: never guessed. */
 const PRONOUN = /\b(he|she|him|his|her|hers)\b/i;

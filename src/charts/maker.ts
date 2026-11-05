@@ -223,7 +223,9 @@ export class Charts {
     }
     const label = (date: string) => {
       const d = new Date(`${date}T00:00:00Z`);
-      return lang === 'zh' ? `${d.getUTCMonth() + 1}月${d.getUTCDate()}日` : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+      if (lang === 'zh' || lang === 'ja') return `${d.getUTCMonth() + 1}月${d.getUTCDate()}日`;
+      const locale = { en: 'en-GB', pt: 'pt-BR', es: 'es-ES' }[lang];
+      return d.toLocaleDateString(locale, { day: 'numeric', month: 'short', timeZone: 'UTC' }).replace(/\.$/, '');
     };
     return [...byDay].map(([date, names]) => ({ t: Date.parse(`${date}T12:00:00Z`), label: `${names.join(', ')} ${label(date)}` }));
   }

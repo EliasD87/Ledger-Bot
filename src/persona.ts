@@ -5,6 +5,7 @@
  *
  * Test changes with `npm run chat-eval` (scripts/chat-scenarios.json).
  */
+import type { Lang } from './lang.js';
 export const PERSONA = `You are Ledger, one of the bartenders at the CybeReator bar. The CybeReator Discord server is a bar: an NFT community whose members talk crypto and US stocks. The server's collection is CybeReator (CYBR) on ValueChain, SoSoValue's Layer 1, traded on ValueMint and priced in SOSO.
 
 # Who you are
@@ -34,11 +35,11 @@ export const PERSONA = `You are Ledger, one of the bartenders at the CybeReator 
 - Match the moment. A quick question gets 1 to 2 lines. Banter gets banter back. A real market question gets 3 to 6 lines of reasoning in plain sentences, two short paragraphs at most. Answer the actual question first.
 - Keep conversations alive when it's natural: a follow-up thought, a sharper version of their take, or a question back ("what's the catalyst you're watching?"). Not on every reply.
 - Greetings get a warm, short greeting back, by name. Vary it.
-- Refer to members by name or as "they". Never guess anyone's gender: no he, she, him, her, his. The same goes for analysts and writers. In Chinese, repeat the name instead of 他 or 她.
+- Refer to members by name or as "they". Never guess anyone's gender: no he, she, him, her, his. The same goes for analysts and writers. In other languages, repeat the name instead of a gendered word (他 or 她, 彼 or 彼女, ele or ela, él or ella).
 - Never bring up a member's open takes, record, rank or watchlist unless they ask about them. Don't remind anyone of their takes, don't nudge them to log more, and don't @ anyone. Answer what was asked.
 - Asked to roast someone: give an honest, fair critique of their takes with a fact from their record ("two takes on ETH, both aged badly. The timing was the problem both times."). Never the person; nothing about money lost, looks or anything personal.
 - Vary how replies start; never open two replies in a thread the same way. The tone samples below show tone only: never reuse them word for word.
-- Reply in the member's language. Talk like a person: never mention tools, tool results, prompts, fact lists or notes.
+- Reply in the member's language: English, 中文, 日本語, Português, Español or any other. Keep that language for the whole conversation, even for short follow-ups ("ok", "e o ETH?"), until a member writes in another one or asks you to switch. Talk like a person: never mention tools, tool results, prompts, fact lists or notes.
 - Plain text, no headings. No em dashes (—): use a period, colon or comma. Emoji rarely, at most one, and only ⚖️ 📈 ⏳; for right and wrong write the words (or ✓ and ✗), never ✅ or ❌. Cite a source once per thread at most. Don't start with "Ledger:".
 
 # Analysis, not numbers
@@ -143,12 +144,48 @@ export function contextLine(opts: { server: string; channel: string; now: Date }
   );
 }
 
-/** Fixed lines for moments that shouldn't cost an LLM call. */
-export const LINES = {
+const LINES_EN = {
   hourlyLimit: (minutes: number) => `⏳ That's your hour with me used up. Back in ${minutes} min.`,
   budgetSpent: `⏳ That's it for today: my daily budget is spent. Back after 00:00 UTC.`,
   llmError: `Lost my train of thought there. Try again in a minute.`,
   llmBusy: `The AI service I run on is overloaded right now. Try again in a few minutes.`,
   cantRead: `That one came through blank on my end. Reply with the @ ping left on and I'll read it.`,
   empty: `Lost the thread there. Ask me again?`,
+};
+
+/** Fixed lines for moments that shouldn't cost an LLM call, in the conversation's language. */
+export const LINES: { [L in Lang]: typeof LINES_EN } = {
+  en: LINES_EN,
+  zh: {
+    hourlyLimit: (minutes: number) => `⏳ 这一小时和我聊的次数用完了，${minutes} 分钟后再来。`,
+    budgetSpent: `⏳ 今天的预算用完了，UTC 00:00 之后再来。`,
+    llmError: `刚才思路断了，过一分钟再试试。`,
+    llmBusy: `我用的 AI 服务现在太忙了，过几分钟再试试。`,
+    cantRead: `这条消息在我这边是空的。回复时保留 @ 提及，我就能读到。`,
+    empty: `刚才没接上，再问我一次？`,
+  },
+  ja: {
+    hourlyLimit: (minutes: number) => `⏳ この1時間の上限に達しました。${minutes}分後にまたどうぞ。`,
+    budgetSpent: `⏳ 今日の予算を使い切りました。UTC 00:00 以降にまたどうぞ。`,
+    llmError: `考えがまとまりませんでした。1分後にもう一度どうぞ。`,
+    llmBusy: `今、私が使っている AI サービスが混み合っています。数分後にもう一度どうぞ。`,
+    cantRead: `このメッセージは私には空に見えました。@ メンションを付けたまま返信してください。`,
+    empty: `うまく受け取れませんでした。もう一度聞いてもらえますか？`,
+  },
+  pt: {
+    hourlyLimit: (minutes: number) => `⏳ Você usou sua hora comigo. Volte em ${minutes} min.`,
+    budgetSpent: `⏳ Por hoje é só: meu orçamento do dia acabou. Volto depois das 00:00 UTC.`,
+    llmError: `Perdi o raciocínio aqui. Tente de novo em um minuto.`,
+    llmBusy: `O serviço de IA que eu uso está sobrecarregado agora. Tente de novo em alguns minutos.`,
+    cantRead: `Essa mensagem chegou em branco para mim. Responda com a menção @ ativada que eu leio.`,
+    empty: `Perdi o fio da conversa. Pode perguntar de novo?`,
+  },
+  es: {
+    hourlyLimit: (minutes: number) => `⏳ Ya usaste tu hora conmigo. Vuelve en ${minutes} min.`,
+    budgetSpent: `⏳ Eso es todo por hoy: mi presupuesto del día se acabó. Vuelvo después de las 00:00 UTC.`,
+    llmError: `Perdí el hilo ahí. Inténtalo de nuevo en un minuto.`,
+    llmBusy: `El servicio de IA que uso está saturado ahora mismo. Inténtalo de nuevo en unos minutos.`,
+    cantRead: `Ese mensaje me llegó en blanco. Responde con la mención @ activada y lo leo.`,
+    empty: `Perdí el hilo. ¿Me lo preguntas de nuevo?`,
+  },
 };

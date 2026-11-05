@@ -4,6 +4,7 @@
  * image shows at roughly half its width, so the text is large and the labels few. Pure functions;
  * render.ts turns them into PNGs.
  */
+import type { Lang } from '../lang.js';
 
 export const WIDTH = 640;
 /** The plot's height; a key under it adds rows. */
@@ -84,7 +85,7 @@ export interface LineChart {
   /** Lines of text under the chart: an event key. */
   key?: string[];
   /** Axis dates in Chinese (10月28日) for a Chinese conversation. */
-  lang?: 'en' | 'zh';
+  lang?: Lang;
 }
 
 /** A line chart: series, levels, markers and a value tag on the right; sized for phones. */
@@ -120,7 +121,8 @@ export function lineChart(c: LineChart): string {
   for (const m of c.marks ?? []) {
     const mx = x(Math.min(Math.max(m.t, t0), t1));
     parts.push(`<line x1="${f(mx)}" x2="${f(mx)}" y1="${PAD.top - 6}" y2="${plotBottom}" stroke="${INK.sub}" stroke-width="1" stroke-dasharray="2 4"/>`);
-    const fits = mx + 6 + textWidth(m.label, TYPE.small) < WIDTH - 8;
+    // Right of the line only if it stays clear of the price axis.
+    const fits = mx + 6 + textWidth(m.label, TYPE.small) < plotRight;
     parts.push(text(fits ? mx + 6 : mx - 6, PAD.top + 8, m.label, { size: TYPE.small, color: INK.sub, anchor: fits ? 'start' : 'end' }));
   }
   // Scheduled events: a tick up from the plot's floor, the name in the row beneath. Names that would
@@ -205,11 +207,18 @@ export function lineChart(c: LineChart): string {
   return frame(c.title, c.subtitle, parts, c.note, c.lines[0]!.color, c.key);
 }
 
-/** "28 Oct", or "10月28日" for Chinese charts. */
-function dayLabel(t: number, lang: 'en' | 'zh' = 'en'): string {
+/** "28 Oct", "10月28日", "28 out": a day in the chart's language. */
+function dayLabel(t: number, lang: Lang = 'en'): string {
   const d = new Date(t);
-  return lang === 'zh' ? `${d.getUTCMonth() + 1}月${d.getUTCDate()}日` : `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`;
+  if (lang === 'zh' || lang === 'ja') return `${d.getUTCMonth() + 1}月${d.getUTCDate()}日`;
+  if (lang === 'pt' || lang === 'es') return `${d.getUTCDate()} ${LATIN_MONTHS[lang][d.getUTCMonth()]}`;
+  return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`;
 }
+
+const LATIN_MONTHS = {
+  pt: ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'],
+  es: ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sept', 'oct', 'nov', 'dic'],
+};
 
 export interface Bar {
   t: number;
@@ -222,7 +231,7 @@ export interface BarChart {
   bars: Bar[];
   format: (v: number) => string;
   note?: string;
-  lang?: 'en' | 'zh';
+  lang?: Lang;
 }
 
 /** Daily bars around zero (ETF flows): inflows sage, outflows rose, the latest labelled. */
@@ -419,7 +428,7 @@ export function ticks(lo: number, hi: number): number[] {
 }
 
 /** Axis labels that suit the span, about five across: hours, days, or months. */
-function timeTicks(t0: number, t1: number, lang: 'en' | 'zh' = 'en'): { t: number; label: string }[] {
+function timeTicks(t0: number, t1: number, lang: Lang = 'en'): { t: number; label: string }[] {
   const days = (t1 - t0) / 86_400_000;
   if (days > 75) return monthTicks(t0, t1, lang);
   const step = days <= 1.5 ? 0.25 : days <= 3 ? 0.5 : [1, 2, 3, 5, 7, 10, 14].find((s) => days / s <= 5) ?? 14;
@@ -435,7 +444,7 @@ function timeTicks(t0: number, t1: number, lang: 'en' | 'zh' = 'en'): { t: numbe
 }
 
 /** Month starts across the range: monthly for short spans, every 2nd, 3rd or 6th for longer ones. */
-function monthTicks(t0: number, t1: number, lang: 'en' | 'zh' = 'en'): { t: number; label: string }[] {
+function monthTicks(t0: number, t1: number, lang: Lang = 'en'): { t: number; label: string }[] {
   const months = (t1 - t0) / (30 * 86_400_000);
   const every = months > 30 ? 6 : months > 14 ? 3 : months > 6 ? 2 : 1;
   const out: { t: number; label: string }[] = [];
@@ -451,7 +460,9 @@ function monthTicks(t0: number, t1: number, lang: 'en' | 'zh' = 'en'): { t: numb
     if (t > t1) break;
     // Keep labels clear of the edges.
     const share = (t - t0) / (t1 - t0);
-    const name = lang === 'zh' ? (m === 0 ? `${y}年1月` : `${m + 1}月`) : m === 0 ? `${MONTHS[m]} '${String(y).slice(2)}` : MONTHS[m]!;
+    const months = lang === 'pt' || lang === 'es' ? LATIN_MONTHS[lang] : MONTHS;
+    const name =
+      lang === 'zh' || lang === 'ja' ? (m === 0 ? `${y}年1月` : `${m + 1}月`) : m === 0 ? `${months[m]} '${String(y).slice(2)}` : months[m]!;
     if (share > 0.05 && share < 0.95 && m % every === 0) out.push({ t, label: name });
     m++;
   }

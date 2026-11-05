@@ -23,7 +23,35 @@ function windowLabelZh(days: number): string {
   return `过去 ${days} 天`;
 }
 
-/** The fixed words on charts: English, or Chinese for a Chinese conversation. */
+/** "5 nov", "11月5日": a short date in the chart's language. */
+const localDate = (locale: string) => (ms: number) =>
+  new Date(ms).toLocaleDateString(locale, { day: 'numeric', month: 'short', timeZone: 'UTC' }).replace(/\.$/, '');
+
+function windowLabelJa(days: number): string {
+  if (days <= 1) return '過去24時間';
+  if (days % 365 === 0) return days === 365 ? '過去1年' : `過去${days / 365}年`;
+  if (days >= 28 && days <= 31) return '過去1か月';
+  if (days % 30 === 0) return `過去${days / 30}か月`;
+  return `過去${days}日`;
+}
+
+function windowLabelPt(days: number): string {
+  if (days <= 1) return 'últimas 24 horas';
+  if (days % 365 === 0) return days === 365 ? 'último ano' : `últimos ${days / 365} anos`;
+  if (days >= 28 && days <= 31) return 'último mês';
+  if (days % 30 === 0) return `últimos ${days / 30} meses`;
+  return `últimos ${days} dias`;
+}
+
+function windowLabelEs(days: number): string {
+  if (days <= 1) return 'últimas 24 horas';
+  if (days % 365 === 0) return days === 365 ? 'último año' : `últimos ${days / 365} años`;
+  if (days >= 28 && days <= 31) return 'último mes';
+  if (days % 30 === 0) return `últimos ${days / 30} meses`;
+  return `últimos ${days} días`;
+}
+
+/** The fixed words on charts, in the conversation's language. */
 const WORDS = {
   en: {
     date: shortDate,
@@ -38,7 +66,7 @@ const WORDS = {
     base: (d: string) => `100 = ${d}`,
     window: (days: number) => windowLabel(days),
     since: (d: string) => `since ${d}`,
-    measure: (sp: ThesisSpec) => measureLabel(sp),
+    measure: (sp: ThesisSpec) => measureLabel(sp, 'en'),
     thesisSub: (m: string, w: string, d: string, now: string) => `${m} · ${w}, then the runway to ${d} · now ${now}`,
     pairSub: (d: string, gap: string, end: string) => `both = 100 on ${d} · the gap is ${gap} pts · runway to ${end}`,
     progressPairSub: (a: string, b: string, d: string) => `since logged: ${a}, ${b} · checks back ${d}`,
@@ -67,7 +95,7 @@ const WORDS = {
     base: (d: string) => `100 = ${d}`,
     window: windowLabelZh,
     since: (d: string) => `${d} 以来`,
-    measure: (sp: ThesisSpec) => (sp.kind === 'relative' ? `${sp.asset}/${sp.versus}` : sp.kind === 'flows' ? `${sp.asset} ETF 净流量` : `${sp.asset} 价格`),
+    measure: (sp: ThesisSpec) => measureLabel(sp, 'zh'),
     thesisSub: (m: string, w: string, d: string, now: string) => `${m} · ${w}，${d} 复盘 · 现在 ${now}`,
     pairSub: (d: string, gap: string, end: string) => `两者在 ${d} = 100 · 差距 ${gap} 点 · ${end} 复盘`,
     progressPairSub: (a: string, b: string, d: string) => `记录以来：${a}，${b} · ${d} 复盘`,
@@ -82,6 +110,93 @@ const WORDS = {
     yearSub: (now: string) => `过去一年 · 现在 ${now}`,
     avg50: '50 日均线',
     avg200: '200 日均线',
+  },
+  ja: {
+    date: localDate('ja-JP'),
+    checkBack: (d: string) => `判定 ${d}`,
+    logged: '記録',
+    typicalBy: (d: string) => `${d}までの通常レンジ`,
+    typicalShort: '通常レンジ',
+    typicalWhenLogged: '記録時の通常レンジ',
+    target: (v: string) => `目標 ${v}`,
+    needs: (p: string, v: string) => `必要 ${p} · ${v}`,
+    loggedAt: (v: string) => `記録時 ${v}`,
+    base: (d: string) => `100 = ${d}`,
+    window: windowLabelJa,
+    since: (d: string) => `${d}以降`,
+    measure: (sp: ThesisSpec) => measureLabel(sp, 'ja'),
+    thesisSub: (m: string, w: string, d: string, now: string) => `${m} · ${w}、${d}に判定 · 現在 ${now}`,
+    pairSub: (d: string, gap: string, end: string) => `${d}に両方 = 100 · 差 ${gap} pt · ${end}に判定`,
+    progressPairSub: (a: string, b: string, d: string) => `記録以降：${a}、${b} · ${d}に判定`,
+    progressSub: (m: string, now: string, d: string) => `${m} · 現在 ${now} · ${d}に判定`,
+    verdict: (ok: boolean): string => (ok ? '的中' : '外れ'),
+    verdictPairSub: (v: string, a: string, b: string) => `${v} · 記録から判定まで：${a}、${b}`,
+    verdictSub: (v: string, end: string, inside: boolean | null) =>
+      `${v} · 終値 ${end}${inside === null ? '' : inside ? '、通常レンジ内' : '、通常レンジ外'}`,
+    windowSub: (w: string, now: string, ch: string) => `${w} · 現在 ${now}（${ch}）`,
+    vs: (a: string, b: string) => `${a} 対 ${b}`,
+    windowPairSub: (d: string, w: string, gap: string) => `${d}に両方 = 100 · ${w} · 差 ${gap} pt`,
+    yearSub: (now: string) => `過去1年 · 現在 ${now}`,
+    avg50: '50日平均',
+    avg200: '200日平均',
+  },
+  pt: {
+    date: localDate('pt-BR'),
+    checkBack: (d: string) => `conferência ${d}`,
+    logged: 'registrado',
+    typicalBy: (d: string) => `faixa típica até ${d}`,
+    typicalShort: 'faixa típica',
+    typicalWhenLogged: 'faixa típica no registro',
+    target: (v: string) => `alvo ${v}`,
+    needs: (p: string, v: string) => `precisa de ${p} · ${v}`,
+    loggedAt: (v: string) => `registrado em ${v}`,
+    base: (d: string) => `100 = ${d}`,
+    window: windowLabelPt,
+    since: (d: string) => `desde ${d}`,
+    measure: (sp: ThesisSpec) => measureLabel(sp, 'pt'),
+    thesisSub: (m: string, w: string, d: string, now: string) => `${m} · ${w}, até ${d} · agora ${now}`,
+    pairSub: (d: string, gap: string, end: string) => `ambos = 100 em ${d} · diferença de ${gap} pts · até ${end}`,
+    progressPairSub: (a: string, b: string, d: string) => `desde o registro: ${a}, ${b} · conferência ${d}`,
+    progressSub: (m: string, now: string, d: string) => `${m} · agora ${now} · conferência ${d}`,
+    verdict: (ok: boolean): string => (ok ? 'acertou' : 'errou'),
+    verdictPairSub: (v: string, a: string, b: string) => `${v} · ${a}, ${b} do registro à conferência`,
+    verdictSub: (v: string, end: string, inside: boolean | null) =>
+      `${v} · terminou em ${end}${inside === null ? '' : inside ? ', dentro da faixa típica' : ', fora da faixa típica'}`,
+    windowSub: (w: string, now: string, ch: string) => `${w} · agora ${now} (${ch})`,
+    vs: (a: string, b: string) => `${a} vs ${b}`,
+    windowPairSub: (d: string, w: string, gap: string) => `ambos = 100 em ${d} · ${w} · diferença de ${gap} pts`,
+    yearSub: (now: string) => `último ano · agora ${now}`,
+    avg50: 'média 50d',
+    avg200: 'média 200d',
+  },
+  es: {
+    date: localDate('es-ES'),
+    checkBack: (d: string) => `revisión ${d}`,
+    logged: 'registrado',
+    typicalBy: (d: string) => `rango típico hasta ${d}`,
+    typicalShort: 'rango típico',
+    typicalWhenLogged: 'rango típico al registrar',
+    target: (v: string) => `objetivo ${v}`,
+    needs: (p: string, v: string) => `necesita ${p} · ${v}`,
+    loggedAt: (v: string) => `registrado en ${v}`,
+    base: (d: string) => `100 = ${d}`,
+    window: windowLabelEs,
+    since: (d: string) => `desde ${d}`,
+    measure: (sp: ThesisSpec) => measureLabel(sp, 'es'),
+    thesisSub: (m: string, w: string, d: string, now: string) => `${m} · ${w}, hasta el ${d} · ahora ${now}`,
+    pairSub: (d: string, gap: string, end: string) => `ambos = 100 el ${d} · diferencia de ${gap} pts · hasta ${end}`,
+    progressPairSub: (a: string, b: string, d: string) => `desde el registro: ${a}, ${b} · revisión ${d}`,
+    progressSub: (m: string, now: string, d: string) => `${m} · ahora ${now} · revisión ${d}`,
+    verdict: (ok: boolean): string => (ok ? 'acertó' : 'falló'),
+    verdictPairSub: (v: string, a: string, b: string) => `${v} · ${a}, ${b} del registro a la revisión`,
+    verdictSub: (v: string, end: string, inside: boolean | null) =>
+      `${v} · terminó en ${end}${inside === null ? '' : inside ? ', dentro del rango típico' : ', fuera del rango típico'}`,
+    windowSub: (w: string, now: string, ch: string) => `${w} · ahora ${now} (${ch})`,
+    vs: (a: string, b: string) => `${a} vs ${b}`,
+    windowPairSub: (d: string, w: string, gap: string) => `ambos = 100 el ${d} · ${w} · diferencia de ${gap} pts`,
+    yearSub: (now: string) => `último año · ahora ${now}`,
+    avg50: 'media 50d',
+    avg200: 'media 200d',
   },
 };
 type Words = (typeof WORDS)['en'];

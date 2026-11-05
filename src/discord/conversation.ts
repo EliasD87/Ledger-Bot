@@ -1,4 +1,4 @@
-import { type Lang, langOf } from '../lang.js';
+import { LANG_NAMES, type Lang, langOf, langOfThread } from '../lang.js';
 import { ComponentType, type Message, MessageReferenceType } from 'discord.js';
 import type { Config } from '../config.js';
 import { type ChatMessage, type ChatModel, type Usage, busy } from '../llm/deepseek.js';
@@ -23,23 +23,61 @@ const SLOW_TOOLS = new Set(['stress_test', 'map_events']);
 
 /** The short line Ledger posts while it works, matched to what it's doing. */
 export function holdLine(tool: string | undefined, lang: Lang): string {
-  const zh = lang === 'zh';
+  const lines = HOLD[lang];
   switch (tool) {
     case 'stress_test':
-      return zh ? '正在用数据检验这个观点，稍等。' : 'Testing that against the data. One moment.';
+      return lines.test;
     case 'map_events':
-      return zh ? '正在梳理那些大涨大跌的日子和当时的新闻，稍等。' : 'Going through the big days and what was reported. One moment.';
+      return lines.events;
     case 'search_news':
     case 'get_news':
-      return zh ? '正在看最新的新闻，稍等。' : 'Checking the latest headlines. One moment.';
+      return lines.news;
     case 'analyze':
     case 'show_chart':
     case 'get_price':
-      return zh ? '正在调取数据，稍等。' : 'Pulling up the numbers. One moment.';
+      return lines.numbers;
     default:
-      return zh ? '正在查，稍等。' : 'Looking into it. One moment.';
+      return lines.other;
   }
 }
+
+const HOLD: { [L in Lang]: { test: string; events: string; news: string; numbers: string; other: string } } = {
+  en: {
+    test: 'Testing that against the data. One moment.',
+    events: 'Going through the big days and what was reported. One moment.',
+    news: 'Checking the latest headlines. One moment.',
+    numbers: 'Pulling up the numbers. One moment.',
+    other: 'Looking into it. One moment.',
+  },
+  zh: {
+    test: '正在用数据检验这个观点，稍等。',
+    events: '正在梳理那些大涨大跌的日子和当时的新闻，稍等。',
+    news: '正在看最新的新闻，稍等。',
+    numbers: '正在调取数据，稍等。',
+    other: '正在查，稍等。',
+  },
+  ja: {
+    test: 'データで検証しています。少々お待ちください。',
+    events: '大きく動いた日とその時のニュースを確認しています。少々お待ちください。',
+    news: '最新のニュースを確認しています。少々お待ちください。',
+    numbers: '数字を確認しています。少々お待ちください。',
+    other: '調べています。少々お待ちください。',
+  },
+  pt: {
+    test: 'Testando isso contra os dados. Um momento.',
+    events: 'Revendo os grandes dias e o que foi noticiado. Um momento.',
+    news: 'Vendo as últimas notícias. Um momento.',
+    numbers: 'Puxando os números. Um momento.',
+    other: 'Verificando. Um momento.',
+  },
+  es: {
+    test: 'Probando eso con los datos. Un momento.',
+    events: 'Revisando los grandes días y lo que se publicó. Un momento.',
+    news: 'Mirando los últimos titulares. Un momento.',
+    numbers: 'Buscando los números. Un momento.',
+    other: 'Lo estoy mirando. Un momento.',
+  },
+};
 
 export interface ConversationDeps {
   config: Config;
@@ -69,7 +107,7 @@ export class Conversation {
     if (!this.channelAllowed(message)) return;
     if (isHiddenFromSelf(message)) {
       // Without the Message Content intent, Discord blanks replies that don't ping Ledger.
-      await message.reply(LINES.cantRead);
+      await message.reply(LINES.en.cantRead);
       return;
     }
 
@@ -78,35 +116,40 @@ export class Conversation {
     const name = message.member?.displayName ?? message.author.displayName;
     members.remember(message.author.id, name);
 
+    // Lines before the thread is read follow this message; everything after follows the conversation.
+    const own = langOf(message.content);
     const verdict = limiter.check(message.author.id);
     if (!verdict.ok) {
       metrics.record({ ...base, type: 'limited', meta: { reason: verdict.reason } });
       if (verdict.reason === 'cooldown') await message.react('⏳').catch(() => {});
-      else if (verdict.warn) await message.reply(LINES.hourlyLimit(Math.ceil(verdict.retryInMs / 60_000)));
+      else if (verdict.warn) await message.reply(LINES[own].hourlyLimit(Math.ceil(verdict.retryInMs / 60_000)));
       return;
     }
     limiter.hit(message.author.id);
 
     if (overBudget(spend.today(), config.guards.dailyBudgetUsd)) {
       metrics.record({ ...base, type: 'limited', meta: { reason: 'budget' } });
-      await message.reply(LINES.budgetSpent);
+      await message.reply(LINES[own].budgetSpent);
       return;
     }
 
     await message.channel.sendTyping().catch(() => {});
     const chain = await collectChain(message, parentOf, config.threadMaxMessages);
     const rootId = this.rootOf(chain, selfId);
+    // Cards, charts and fixed lines follow the conversation's language: "ok" after Portuguese stays Portuguese.
+    const lang = langOfThread(chain.filter((m) => m.author.id !== selfId).map((m) => m.content));
     const prompt: ChatMessage[] = [
       { role: 'system', content: PERSONA },
       {
         role: 'system',
         content: contextLine({ server: message.guild.name, channel: channelName(message), now: new Date() }),
       },
+      ...(lang !== 'en'
+        ? [{ role: 'system' as const, content: `This conversation is in ${LANG_NAMES[lang]}: reply in ${LANG_NAMES[lang]} unless the member's latest message is clearly in another language.` }]
+        : []),
       ...toChatMessages(chain.map((m) => toThreadMessage(m, selfId))),
     ];
 
-    // Charts in this reply follow the member's language (Chinese labels for a Chinese message).
-    const lang = langOf(message.content);
     const session = this.deps.tools.session({ ...base, name, lang });
     // A slow answer never looks stuck: a short line goes up first (at once for a stress test, else after a
     // few seconds), and the full answer replaces it in the same message.
@@ -136,14 +179,14 @@ export class Conversation {
         },
         onUsage,
       }, PERSONA_EXAMPLES);
-      text = postableReply(answer.text) || LINES.empty;
+      text = postableReply(answer.text) || LINES[lang].empty;
       toolsUsed = answer.toolsUsed;
       corrected = answer.problems.length;
     } catch (err) {
       log.error('DeepSeek request failed', err);
       clearTimeout(holdTimer);
       const placeholder = held ? await held : null;
-      const line = busy(err) ? LINES.llmBusy : LINES.llmError;
+      const line = busy(err) ? LINES[lang].llmBusy : LINES[lang].llmError;
       await (placeholder ? placeholder.edit({ content: line }) : message.reply(line)).catch(() => {});
       return;
     } finally {

@@ -47,7 +47,7 @@ const pct = (x: number) => `${Math.round(x * 1000) / 10}%`;
 
 /** The claim in plain words, written by code so the record says exactly what will be checked. */
 export function claimText(s: ThesisSpec, lang: Lang = 'en'): string {
-  if (lang === 'zh') return claimTextZh(s);
+  if (lang !== 'en') return CLAIMS[lang](s);
   const p = s.pct ? ` ${pct(s.pct)}+` : '';
   if (s.nft) {
     return s.kind === 'price'
@@ -67,12 +67,21 @@ export function claimText(s: ThesisSpec, lang: Lang = 'en'): string {
 }
 
 /** What gets measured, for labels: "SOL price", "SOL/ETH". */
-export function measureLabel(s: ThesisSpec): string {
-  if (s.nft) return `${s.asset} floor`;
+export function measureLabel(s: ThesisSpec, lang: Lang = 'en'): string {
   if (s.kind === 'relative') return `${s.asset}/${s.versus}`;
-  if (s.kind === 'flows') return `${s.asset} ETF net flows`;
-  return `${s.asset} price`;
+  const [floor, flows, price] = MEASURES[lang];
+  const label = s.nft ? floor : s.kind === 'flows' ? flows : price;
+  return label.replace('{}', s.asset);
 }
+
+/** NFT floor, ETF net flows and price, in each language ("{}" is the asset). */
+const MEASURES: { [L in Lang]: [string, string, string] } = {
+  en: ['{} floor', '{} ETF net flows', '{} price'],
+  zh: ['{} 地板价', '{} ETF 净流量', '{} 价格'],
+  ja: ['{} フロア価格', '{} ETF 純流入', '{} 価格'],
+  pt: ['floor de {}', 'fluxo líquido dos ETFs de {}', 'preço de {}'],
+  es: ['floor de {}', 'flujo neto de los ETF de {}', 'precio de {}'],
+};
 
 /**
  * Whether the thesis held, from the measure at the start and at the check-back. For flows, `end` is
@@ -143,6 +152,89 @@ function claimTextZh(s: ThesisSpec): string {
     case 'flows':
       return `${s.asset} 现货 ETF ${when}净${s.direction === 'up' ? '流入' : '流出'}`;
   }
+}
+
+/** 「BTC が 30日以内に 100,000 を上回る」 */
+function claimTextJa(s: ThesisSpec): string {
+  const when = `${durationJa(s.horizonDays)}以内に`;
+  const p = s.pct ? `${pct(s.pct)}以上` : '';
+  const up = s.direction === 'up';
+  const what = s.nft ? `${s.asset} のフロア価格が` : `${s.asset} が`;
+  switch (s.nft ? (s.kind === 'price' ? 'price' : 'move') : s.kind) {
+    case 'price':
+      return `${what}${when} ${s.nft ? nftAmount(s.target!, s.nft.currency) : formatPrice(s.target!)} を${up ? '上回る' : '下回る'}`;
+    case 'move':
+      return `${what}${when}${p}${up ? '上昇' : '下落'}`;
+    case 'relative':
+      return `${s.asset} が${durationJa(s.horizonDays)}で ${s.versus} を${p}${up ? '上回る' : '下回る'}`;
+    case 'flows':
+    default:
+      return `${s.asset} 現物ETF が${durationJa(s.horizonDays)}で純${up ? '流入' : '流出'}`;
+  }
+}
+
+/** "BTC acima de 100,000 em até 30 dias" */
+function claimTextPt(s: ThesisSpec): string {
+  const when = durationPt(s.horizonDays);
+  const p = s.pct ? ` ${pct(s.pct)}+` : '';
+  const up = s.direction === 'up';
+  const what = s.nft ? `Floor de ${s.asset}` : s.asset;
+  switch (s.nft ? (s.kind === 'price' ? 'price' : 'move') : s.kind) {
+    case 'price':
+      return `${what} ${up ? 'acima de' : 'abaixo de'} ${s.nft ? nftAmount(s.target!, s.nft.currency) : formatPrice(s.target!)} em até ${when}`;
+    case 'move':
+      return `${what} ${up ? 'sobe' : 'cai'}${p} ${p ? 'em até' : 'em'} ${when}`;
+    case 'relative':
+      return `${s.asset} ${up ? 'supera' : 'fica atrás de'} ${s.versus}${s.pct ? ` por${p}` : ''} em ${when}`;
+    case 'flows':
+    default:
+      return `ETFs à vista de ${s.asset} com ${up ? 'entradas' : 'saídas'} líquidas em ${when}`;
+  }
+}
+
+/** "BTC por encima de 100,000 en 30 días" */
+function claimTextEs(s: ThesisSpec): string {
+  const when = durationEs(s.horizonDays);
+  const p = s.pct ? ` ${pct(s.pct)}+` : '';
+  const up = s.direction === 'up';
+  const what = s.nft ? `Floor de ${s.asset}` : s.asset;
+  switch (s.nft ? (s.kind === 'price' ? 'price' : 'move') : s.kind) {
+    case 'price':
+      return `${what} ${up ? 'por encima de' : 'por debajo de'} ${s.nft ? nftAmount(s.target!, s.nft.currency) : formatPrice(s.target!)} en ${when}`;
+    case 'move':
+      return `${what} ${up ? 'sube' : 'baja'}${p} en ${when}`;
+    case 'relative':
+      return `${s.asset} ${up ? 'supera a' : 'queda por detrás de'} ${s.versus}${s.pct ? ` por${p}` : ''} en ${when}`;
+    case 'flows':
+    default:
+      return `ETF al contado de ${s.asset} con ${up ? 'entradas' : 'salidas'} netas en ${when}`;
+  }
+}
+
+const CLAIMS: { [L in Exclude<Lang, 'en'>]: (s: ThesisSpec) => string } = { zh: claimTextZh, ja: claimTextJa, pt: claimTextPt, es: claimTextEs };
+
+/** "1週間", "30日" */
+export function durationJa(n: number): string {
+  if (n % 7 === 0 && n <= 56) return `${n / 7}週間`;
+  if (n === 30) return '1か月';
+  if (n === 365) return '1年';
+  return `${n}日`;
+}
+
+/** "uma semana", "30 dias" */
+export function durationPt(n: number): string {
+  if (n % 7 === 0 && n <= 56) return n === 7 ? 'uma semana' : `${n / 7} semanas`;
+  if (n === 30) return 'um mês';
+  if (n === 365) return 'um ano';
+  return n === 1 ? 'um dia' : `${n} dias`;
+}
+
+/** "una semana", "30 días" */
+export function durationEs(n: number): string {
+  if (n % 7 === 0 && n <= 56) return n === 7 ? 'una semana' : `${n / 7} semanas`;
+  if (n === 30) return 'un mes';
+  if (n === 365) return 'un año';
+  return n === 1 ? 'un día' : `${n} días`;
 }
 
 /** An amount in a collection's own coin: "300 SOSO", "2.5 ETH". */
