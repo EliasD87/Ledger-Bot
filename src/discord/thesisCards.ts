@@ -9,13 +9,13 @@ import { myPageButton } from './pageCards.js';
 import { CHART_NAME } from '../charts/maker.js';
 import { ACCENT, card, cards, divider, heading, kicker, picture, row } from './ui.js';
 
-export type ThesisAction = 'log' | 'drop' | 'with' | 'against' | 'progress' | 'timeframes' | 'retime' | 'sharpen' | 'sharpened' | 'duel';
+export type ThesisAction = 'log' | 'drop' | 'with' | 'against' | 'progress' | 'timeframes' | 'retime' | 'sharpen' | 'sharpened' | 'duel' | 'case';
 
 /** `arg` carries a number some buttons need: the timeframe in days for "retime". */
 export const thesisButtonId = (action: ThesisAction, id: number, arg?: number) => `thesis:${action}:${id}${arg !== undefined ? `:${arg}` : ''}`;
 
 export function parseThesisButtonId(customId: string): { action: ThesisAction; id: number; arg?: number } | null {
-  const m = /^thesis:(log|drop|with|against|progress|timeframes|retime|sharpen|sharpened|duel):(\d+)(?::(\d+))?$/.exec(customId);
+  const m = /^thesis:(log|drop|with|against|progress|timeframes|retime|sharpen|sharpened|duel|case):(\d+)(?::(\d+))?$/.exec(customId);
   return m ? { action: m[1] as ThesisAction, id: Number(m[2]), ...(m[3] ? { arg: Number(m[3]) } : {}) } : null;
 }
 
@@ -36,6 +36,9 @@ const WORDS = {
   en: {
     lean: { for: 'Evidence leans with the take.', against: 'Evidence leans against the take.', even: 'Evidence is split.' },
     stressTest: 'Stress test',
+    fullCase: 'Full case',
+    wrongIf: 'Wrong if',
+    caseTitle: (claim: string) => `Full case · ${claim}`,
     thesis: (id: number) => `Thesis #${id}`,
     onRecord: 'on the record',
     agedWell: 'aged well ✓',
@@ -65,7 +68,7 @@ const WORDS = {
     sides: (w: number, a: number) => `With **${w}** · Against **${a}**`,
     sideWith: 'with',
     sideAgainst: 'against',
-    draftFooter: (when: string, data: string) => `Log it to put it on the record and get a check-back ${when} · data: ${data}`,
+    draftFooter: (when: string, data: string) => `Checks back ${when} once logged · ${data}`,
     checkIn: (days: number, date: string) => (days === 1 ? 'tomorrow' : `in ${days} days, around ${date}`),
     footer: (data: string) => `Data: ${data} · evidence, not a forecast`,
     checkBack: (id: number) => `Check-back · thesis #${id}`,
@@ -103,6 +106,9 @@ const WORDS = {
   zh: {
     lean: { for: '证据更支持这个观点。', against: '证据更不支持这个观点。', even: '证据两边差不多。' },
     stressTest: '压力测试',
+    fullCase: '完整分析',
+    wrongIf: '这样就错了',
+    caseTitle: (claim: string) => `完整分析 · ${claim}`,
     thesis: (id: number) => `观点 #${id}`,
     onRecord: '已记录',
     agedWell: '应验了 ✓',
@@ -174,6 +180,9 @@ const WORDS = {
   ja: {
     lean: { for: '証拠はこの見解寄りです。', against: '証拠はこの見解に反しています。', even: '証拠は五分五分です。' },
     stressTest: 'ストレステスト',
+    fullCase: '詳しく見る',
+    wrongIf: 'こうなれば外れ',
+    caseTitle: (claim: string) => `詳しい分析 · ${claim}`,
     thesis: (id: number) => `見解 #${id}`,
     onRecord: '記録済み',
     agedWell: '当たった ✓',
@@ -244,6 +253,9 @@ const WORDS = {
   pt: {
     lean: { for: 'As evidências pendem a favor da tese.', against: 'As evidências pendem contra a tese.', even: 'As evidências estão divididas.' },
     stressTest: 'Teste de estresse',
+    fullCase: 'Análise completa',
+    wrongIf: 'Errada se',
+    caseTitle: (claim: string) => `Análise completa · ${claim}`,
     thesis: (id: number) => `Tese #${id}`,
     onRecord: 'registrada',
     agedWell: 'acertou ✓',
@@ -314,6 +326,9 @@ const WORDS = {
   es: {
     lean: { for: 'La evidencia se inclina a favor de la tesis.', against: 'La evidencia se inclina en contra de la tesis.', even: 'La evidencia está dividida.' },
     stressTest: 'Prueba de estrés',
+    fullCase: 'Análisis completo',
+    wrongIf: 'Falla si',
+    caseTitle: (claim: string) => `Análisis completo · ${claim}`,
     thesis: (id: number) => `Tesis #${id}`,
     onRecord: 'registrada',
     agedWell: 'acertó ✓',
@@ -411,8 +426,6 @@ export function thesisContainer(t: Thesis, sides: Sides, opts: { chart?: boolean
       : `⚖️ ${w.thesis(t.id)} · ${who} · ${
           t.status === 'open' ? w.onRecord : t.status === 'aged_well' ? w.agedWell : t.status === 'aged_badly' ? w.agedBadly : t.status === 'void' ? w.voided : w.notLogged
         }`;
-  const readAs = t.analysis.assumptions.length ? ` · ${w.readAs}: ${t.analysis.assumptions.join('; ')}` : '';
-  const take = `"${t.take.length > 140 ? `${t.take.slice(0, 139)}…` : t.take}"`;
   const timeline =
     t.status === 'open' && t.checkAt
       ? kicker(w.loggedAt(w.measure(t.spec), formatMeasure(t.spec, t.startValue ?? 0), discordTime(t.checkAt, 'R')))
@@ -420,16 +433,21 @@ export function thesisContainer(t: Thesis, sides: Sides, opts: { chart?: boolean
         ? `${w.measure(t.spec)} ${change(t, t.endValue, w)}`
         : null;
 
+  // The rest of the argument (every point, history, analysts, how the take was read) is one tap away, privately.
+  const fullCase = t.spec.nft ? [] : [button('case', t.id, w.fullCase)];
   const buttons =
     t.status === 'draft'
       ? row(
           button('log', t.id, w.logIt, ButtonStyle.Primary),
+          ...fullCase,
           ...(t.spec.kind !== 'flows' && !t.spec.nft ? [button('timeframes', t.id, w.timeframes), button('sharpen', t.id, w.sharpen)] : []),
           button('drop', t.id, w.notNow),
         )
       : t.status === 'open'
-        ? row(button('with', t.id, w.withYou), button('against', t.id, w.against), button('progress', t.id, w.progress))
-        : null;
+        ? row(button('with', t.id, w.withYou), button('against', t.id, w.against), button('progress', t.id, w.progress), ...fullCase)
+        : fullCase.length
+          ? row(...fullCase)
+          : null;
   const debate = sides.with.length + sides.against.length > 0;
   const duel = t.challengerId ? w.duel(who, `<@${t.challengerId}>`) : null;
   // NFT floor takes have no debate: where the floor was when tested, and what the take needs from there.
@@ -441,24 +459,22 @@ export function thesisContainer(t: Thesis, sides: Sides, opts: { chart?: boolean
         need !== null && need !== 0 && w.floorNeeds(pct(need), t.spec.horizonDays),
       ]
     : [
-        divider(),
-        `**${w.for}**`,
-        ...a.for.map((p) => `· ${p.point}`),
-        `**${w.againstHeading}**`,
-        ...a.against.map((p) => `· ${p.point}`),
-        divider(),
-        a.kill && `**${w.kill}:** ${a.kill}`,
-        a.history && `**${w.history}:** ${a.history}`,
-        // Counted in code when it was tested: each analyst once, by their latest call.
-        !!t.analysis.analysts?.length &&
-          kicker(w.analysts(t.analysis.analysts[0]!.days, t.analysis.analysts.map((x) => w.analystSplit(x.ticker, x.bullish, x.bearish)).join(' · '))),
-        `**${w.lean[a.lean]}**${a.verdict ? ` _${a.verdict}_` : ''}`,
+        // Short enough to read in a glance: the strongest two points a side and what would prove it wrong.
+        [
+          ...a.for.slice(0, 2).map((p) => `**${w.for}** · ${p.point}`),
+          ...a.against.slice(0, 2).map((p) => `**${w.againstHeading}** · ${p.point}`),
+          // Older takes wrote it as "If …"; after "Wrong if" that reads twice.
+          a.kill && `**${w.wrongIf}** · ${a.kill.replace(/^(if|si|se)\s+/i, '')}`,
+        ]
+          .filter(Boolean)
+          .join('\n'),
       ];
 
   return card(EDGE[t.status], [
     kicker(status),
     heading(t.claim),
-    kicker(`${take}${readAs}`),
+    // The answer first: which way the evidence leans, in one line.
+    !t.spec.nft && `**${w.lean[a.lean]}**${a.verdict ? ` ${a.verdict}` : ''}`,
     timeline,
     opts.chart && picture(CHART_NAME, t.claim),
     ...body,
@@ -472,6 +488,29 @@ export function thesisContainer(t: Thesis, sides: Sides, opts: { chart?: boolean
         ? w.draftFooter(w.checkIn(t.spec.horizonDays, w.date(t.createdAt + t.spec.horizonDays * 86_400_000)), t.analysis.sources.join(', '))
         : w.footer(t.analysis.sources.join(', ')),
     ),
+  ]);
+}
+
+/** Everything behind a take's card, shown privately on "Full case": how it was read, every point, history, analysts. */
+export function caseContainer(t: Thesis): ContainerBuilder {
+  const w = wordsFor(t);
+  const a = t.analysis.argument;
+  return card(EDGE[t.status], [
+    kicker(w.caseTitle(t.claim)),
+    kicker(`"${t.take.length > 140 ? `${t.take.slice(0, 139)}…` : t.take}"${t.analysis.assumptions.length ? ` · ${w.readAs}: ${t.analysis.assumptions.join('; ')}` : ''}`),
+    `**${w.lean[a.lean]}**${a.verdict ? ` ${a.verdict}` : ''}`,
+    divider(),
+    `**${w.for}**`,
+    ...a.for.map((p) => `· ${p.point}`),
+    `**${w.againstHeading}**`,
+    ...a.against.map((p) => `· ${p.point}`),
+    divider(),
+    a.kill && `**${w.kill}:** ${a.kill}`,
+    a.history && `**${w.history}:** ${a.history}`,
+    // Counted in code when it was tested: each analyst once, by their latest call.
+    !!t.analysis.analysts?.length &&
+      kicker(w.analysts(t.analysis.analysts[0]!.days, t.analysis.analysts.map((x) => w.analystSplit(x.ticker, x.bullish, x.bearish)).join(' · '))),
+    kicker(w.footer(t.analysis.sources.join(', '))),
   ]);
 }
 

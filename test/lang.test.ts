@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { thesisChart } from '../src/charts/charts.js';
 import { toPng } from '../src/charts/render.js';
-import { thesisCard } from '../src/discord/thesisCards.js';
+import { caseContainer, thesisCard } from '../src/discord/thesisCards.js';
 import { detectLang, langOf, langOfThread } from '../src/lang.js';
 import { holdLine } from '../src/discord/conversation.js';
 import { claimText } from '../src/theses/spec.js';
@@ -34,7 +34,10 @@ describe('Chinese', () => {
       status: 'draft', startValue: null, startAt: null, checkAt: null, endValue: null, settledAt: null, note: null, createdAt: NOW, challengerId: null,
     } as unknown as Thesis;
     const card = JSON.stringify(thesisCard(t, { with: [], against: [] }).components);
-    for (const word of ['压力测试', '支持', '反对', '记录', '证据更不支持这个观点', '什么情况说明它错了']) expect(card).toContain(word);
+    for (const word of ['压力测试', '支持', '反对', '记录', '证据更不支持这个观点', '这样就错了', '完整分析']) expect(card).toContain(word);
+    // The rest sits behind Full case.
+    const full = JSON.stringify(caseContainer(t).toJSON());
+    for (const word of ['什么情况说明它错了', '历史', '理解为']) expect(full).toContain(word);
     expect(card).not.toContain('Log it');
     const svg = thesisChart(spec, [btc], { lang: 'zh' });
     for (const word of ['BTC 一个月内高于 100,000', '目标 100,000', '复盘', '常见区间']) expect(svg).toContain(word);

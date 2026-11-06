@@ -524,7 +524,7 @@ export class ToolKit {
           checks_back_if_logged_now: utcLabel(now() + draft.spec.horizonDays * 86_400_000),
           lean: a.lean,
           verdict: a.verdict,
-          note: 'The card with the full analysis and a "Log it" button is attached under your reply. Your whole reply is ONE or two short sentences (under 35 words): react to the verdict in your voice, no numbers, no repeating the card, no other tools. Invite them to log it if they stand by it. If you mention timing, use checks_back_if_logged_now.',
+          note: 'The card with the full analysis and a "Log it" button is attached under your reply. Your whole reply is ONE short sentence (under 20 words), by name: your honest reaction in your own voice, then invite them to log it if they stand by it. The card already gives the verdict and the reasons, so never restate them: no reasons, no numbers, no "leans against", no other tools. If you mention timing, use checks_back_if_logged_now.',
         };
       },
       map_events: async (args) => {

@@ -12,6 +12,7 @@ import { type ThesisSpec, held } from '../theses/spec.js';
 import type { Thesis, ThesisStore } from '../theses/store.js';
 import { pageRow } from './pageCards.js';
 import {
+  caseContainer,
   momentPost,
   parseThesisButtonId,
   progressText,
@@ -152,6 +153,10 @@ export async function handleThesisButton(interaction: ButtonInteraction, deps: T
       const holding = value === null ? null : held(t.spec, t.startValue ?? 0, value);
       const chart = value === null ? null : await deps.charts?.progress(t, value, now).catch(() => null);
       await interaction.editReply({ content: progressText(t, now, value, holding), files: chart ? [{ attachment: chart.data, name: chart.name }] : [] });
+      return;
+    }
+    case 'case': {
+      await replyWithCards(interaction, cards([caseContainer(t)]), { ephemeral: true });
       return;
     }
     case 'timeframes': {
