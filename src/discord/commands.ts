@@ -20,6 +20,7 @@ import type { Members } from '../members.js';
 import { RETENTION_DAYS } from '../memory/archive.js';
 import { summarize } from '../memory/summarize.js';
 import { COMMAND_PILLAR, type Metrics } from '../metrics.js';
+import type { Lang } from '../lang.js';
 import type { Activity } from '../pages/myPage.js';
 import type { Measure } from '../theses/measure.js';
 import { type TakeDeps, draftTake } from '../theses/service.js';
@@ -29,6 +30,7 @@ import type { ServerMemory } from './memory.js';
 import { handlePageInteraction, showMyPage } from './pageButtons.js';
 import { myPageButton } from './pageCards.js';
 import { postableReply } from './text.js';
+import { type BarDeps, handleBarButton, postBarQuestion } from './barButtons.js';
 import { handleThesisButton } from './thesisButtons.js';
 import { boardContainer, leaderDetail, recordContainer, thesisCard } from './thesisCards.js';
 import { ACCENT, card, cards, kicker, rebuilding, replyWithCards, row } from './ui.js';
@@ -116,6 +118,27 @@ export const commandData = [
     .addChannelOption((o) => o.setName('channel').setDescription('Where big prints go').addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement))
     .addBooleanOption((o) => o.setName('archive').setDescription(`Keep ${RETENTION_DAYS} days of messages for server-wide /recall`))
     .addBooleanOption((o) => o.setName('off').setDescription('Stop the prints')),
+  guildCommand('ledger-bar', 'The daily bar question in this channel: on, off, or post one now (admins)')
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .addSubcommand((s) =>
+      s
+        .setName('on')
+        .setDescription('Post the bar question here every day at 13:00 UTC')
+        .addStringOption((o) =>
+          o
+            .setName('language')
+            .setDescription('Default: from the channel name')
+            .addChoices(
+              { name: 'English', value: 'en' },
+              { name: 'Português', value: 'pt' },
+              { name: 'Español', value: 'es' },
+              { name: '中文', value: 'zh' },
+              { name: '日本語', value: 'ja' },
+            ),
+        ),
+    )
+    .addSubcommand((s) => s.setName('off').setDescription('Stop the bar question in this channel'))
+    .addSubcommand((s) => s.setName('now').setDescription("Post today's bar question here now, to try it")),
   guildCommand('ledger-admin', 'Engagement numbers, or void a thesis (admins)')
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .addSubcommand((s) => s.setName('stats').setDescription('Habit numbers for this server'))
@@ -146,6 +169,8 @@ export interface CommandDeps {
   metrics: Metrics;
   spend: Spend;
   charts?: Charts;
+  /** The daily bar question. */
+  bar?: BarDeps;
 }
 
 export async function handleInteraction(interaction: Interaction, deps: CommandDeps): Promise<void> {
@@ -155,6 +180,7 @@ export async function handleInteraction(interaction: Interaction, deps: CommandD
     if (!interaction.isButton()) return;
     if (id.startsWith('watch:')) return handleWatchButton(interaction, { store: deps.alerts, feed: deps.feed, desk: deps.desk, metrics: deps.metrics });
     if (id.startsWith('thesis:')) return handleThesisButton(interaction, deps);
+    if (id.startsWith('bar:') && deps.bar) return handleBarButton(interaction, deps.bar);
     // Buttons on cards from the old design (calls, the daily question) no longer do anything.
     await interaction.reply({ flags: MessageFlags.Ephemeral, content: "That card is from Ledger's old design. Bring a take instead: /take or @Ledger." });
     return;
@@ -185,7 +211,54 @@ export async function handleInteraction(interaction: Interaction, deps: CommandD
       return setup(interaction, deps);
     case 'ledger-admin':
       return interaction.options.getSubcommand() === 'void' ? voidThesis(interaction, deps) : stats(interaction, deps);
+    case 'ledger-bar':
+      return barCommand(interaction, deps);
   }
+}
+
+/** A channel's language from its name: "general-chat-portuguese", "cybereators-中文". */
+function langOfChannel(name: string): Lang {
+  const n = name.toLowerCase();
+  if (/portugu|brasil|brazil|-pt\b/.test(n)) return 'pt';
+  if (/espa[nñ]ol|spanish|-es\b/.test(n)) return 'es';
+  if (/中文|chinese|-zh\b|-cn\b/.test(n)) return 'zh';
+  if (/日本語|japan|-ja\b|-jp\b/.test(n)) return 'ja';
+  return 'en';
+}
+
+/** /ledger-bar: the daily bar question in this channel. */
+async function barCommand(interaction: ChatInputCommandInteraction<'cached'>, deps: CommandDeps): Promise<void> {
+  const bar = deps.bar;
+  if (!bar) {
+    await interaction.reply({ flags: MessageFlags.Ephemeral, content: "The bar question isn't available right now." });
+    return;
+  }
+  const sub = interaction.options.getSubcommand();
+  const channelId = interaction.channelId;
+  const configured = bar.bar.channels(interaction.guildId).find((c) => c.channelId === channelId);
+  const named = 'name' in interaction.channel! ? String(interaction.channel.name) : '';
+  if (sub === 'off') {
+    bar.bar.setChannel(interaction.guildId, channelId, null, Date.now());
+    await interaction.reply({ flags: MessageFlags.Ephemeral, content: configured ? 'The bar question is off in this channel.' : "The bar question wasn't on in this channel." });
+    return;
+  }
+  if (sub === 'on') {
+    const lang = (interaction.options.getString('language') as Lang | null) ?? langOfChannel(named);
+    bar.bar.setChannel(interaction.guildId, channelId, lang, Date.now());
+    await interaction.reply({
+      flags: MessageFlags.Ephemeral,
+      content: `The bar question posts here every day at 13:00 UTC, in ${{ en: 'English', pt: 'Portuguese', es: 'Spanish', zh: 'Chinese', ja: 'Japanese' }[lang]}. Answers stay open for 8 hours, and each day's post shows yesterday's result: who read it right and who missed. Use \`/ledger-bar now\` to post today's right away.`,
+    });
+    return;
+  }
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  const opened = await bar.runner.open(interaction.guildId, channelId, configured?.lang ?? langOfChannel(named), true);
+  if ('error' in opened) {
+    await interaction.editReply(opened.error);
+    return;
+  }
+  const link = await postBarQuestion(interaction.client, bar, opened.question);
+  await interaction.editReply(link ? `Posted: ${link}${configured ? '' : "\nIt won't come back tomorrow unless you turn it on here with `/ledger-bar on`."}` : "Couldn't post in this channel. Check Ledger can send messages here.");
 }
 
 /** /take: the same stress test as @Ledger, posted publicly with its Log it button. */

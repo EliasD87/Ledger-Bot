@@ -369,4 +369,36 @@ export const migrations: string[] = [
     PRIMARY KEY (key, at)
   );
   `,
+  // 13: the daily bar question. One relatable question a day per chosen channel ("Will BTC be higher this
+  // time tomorrow?"), answered With or Against, settled 24 hours after it posts. No points, no rounds.
+  `
+  CREATE TABLE bar_questions (
+    id           INTEGER PRIMARY KEY,
+    guild_id     TEXT NOT NULL,
+    channel_id   TEXT NOT NULL,
+    lang         TEXT NOT NULL,
+    message_id   TEXT,
+    day          TEXT NOT NULL,            -- the UTC day it posted, YYYY-MM-DD
+    rule         TEXT NOT NULL,            -- JSON: what is asked
+    start_value  REAL NOT NULL,            -- the price (or ratio) when it posted
+    ledger       INTEGER NOT NULL,         -- Ledger's own side from history: 1 with, 0 against
+    ledger_share REAL NOT NULL,            -- how often "with" happened on a day over the last year
+    opens_at     INTEGER NOT NULL,
+    closes_at    INTEGER NOT NULL,         -- answers close
+    settles_at   INTEGER NOT NULL,         -- 24 hours after it posted
+    status       TEXT NOT NULL CHECK (status IN ('open', 'closed', 'settled', 'void')),
+    end_value    REAL,
+    outcome      INTEGER,                  -- 1: With was right, 0: Against was right
+    created_at   INTEGER NOT NULL,
+    UNIQUE (channel_id, day)
+  );
+  CREATE INDEX bar_questions_status ON bar_questions (status, settles_at);
+  CREATE TABLE bar_votes (
+    question_id INTEGER NOT NULL REFERENCES bar_questions (id),
+    user_id     TEXT NOT NULL,
+    value       INTEGER NOT NULL,          -- 1 with, 0 against
+    created_at  INTEGER NOT NULL,
+    PRIMARY KEY (question_id, user_id)
+  );
+  `,
 ];

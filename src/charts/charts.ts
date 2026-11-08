@@ -221,6 +221,12 @@ export interface ChartExtras {
   events?: RunwayEvent[];
   /** Chinese labels for a Chinese conversation. */
   lang?: Lang;
+  /** A title other than the take's claim (the bar question asks it as a question). */
+  title?: string;
+  /** The label on the check-time line, in place of "check-back". */
+  checkLabel?: string;
+  /** A question, not a take: the subtitle is the past week and where it is now, without the runway. */
+  question?: boolean;
 }
 
 /** Price-like numbers on an axis: 2,374 · 102.5 · 0.04312. */
@@ -313,7 +319,8 @@ export function thesisChart(spec: ThesisSpec, histories: History[], extras: Char
   const lookback = lookbackFor(spec.horizonDays);
   const lang = extras.lang ?? 'en';
   const w = WORDS[lang];
-  const title = claimText(spec, lang);
+  const title = extras.title ?? claimText(spec, lang);
+  const checkMark = (t: number) => ({ t, label: extras.checkLabel ?? w.checkBack(w.date(t)) });
   if (spec.kind === 'relative' && histories.length >= 2) {
     const [a, b] = histories as [History, History];
     const pairs = extras.hourlyPairs?.length ? extras.hourlyPairs : dailyPairs(lastDays(a.closes, lookback), b.closes);
@@ -322,10 +329,12 @@ export function thesisChart(spec: ThesisSpec, histories: History[], extras: Char
     const check = pairs.at(-1)!.t + spec.horizonDays * DAY;
     return lineChart({
       title,
-      subtitle: w.pairSub(w.date(c.base.t), signedPct(c.a - c.b).replace('%', ''), w.date(check)),
+      subtitle: extras.question
+        ? w.windowPairSub(w.date(c.base.t), w.window(lookback), signedPct(c.a - c.b).replace('%', ''))
+        : w.pairSub(w.date(c.base.t), signedPct(c.a - c.b).replace('%', ''), w.date(check)),
       lines: c.lines,
       levels: [baseLevel(c.base.t, w)],
-      marks: [{ t: check, label: w.checkBack(w.date(check)) }],
+      marks: [checkMark(check)],
       events: extras.events,
       xEnd: check,
       format: indexFormat,
@@ -341,10 +350,12 @@ export function thesisChart(spec: ThesisSpec, histories: History[], extras: Char
   const range = typicalRange(daily, last.v, spec.horizonDays, weekdaysOnly(histories));
   return lineChart({
     title,
-    subtitle: w.thesisSub(w.measure(spec), w.window(lookback), w.date(check), format(last.v)),
+    subtitle: extras.question
+      ? w.windowSub(`${w.measure(spec)} · ${w.window(lookback)}`, format(last.v), signedPct(last.v / points[0]!.v - 1))
+      : w.thesisSub(w.measure(spec), w.window(lookback), w.date(check), format(last.v)),
     lines: !extras.hourly && lookback >= 150 ? withAverages(daily, points.length, w) : [{ points, color: INK.main, width: 2.4, fill: true }],
     levels: needLevel(spec, last.v, format, w),
-    marks: [{ t: check, label: w.checkBack(w.date(check)) }],
+    marks: [checkMark(check)],
     ...(range ? { cone: { t0: last.t, v0: last.v, t1: check, ...range, label: w.typicalBy(w.date(check)), short: w.typicalShort } } : {}),
     events: extras.events,
     xEnd: check,

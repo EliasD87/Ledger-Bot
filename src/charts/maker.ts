@@ -74,6 +74,14 @@ export class Charts {
     return this.draw('thesis', () => thesisChart(spec, histories, extras));
   }
 
+  /** The daily bar question: the last week hourly, the price now and the usual one-day range ahead. */
+  async barQuestion(spec: ThesisSpec, title: string, checkLabel: string, lang: Lang = 'en'): Promise<ChartFile | null> {
+    const histories = await this.specHistories(spec);
+    if (!histories || measuredSeries(spec, histories).length < 2) return null;
+    const extras = await this.extras(histories, 7, spec.kind === 'relative');
+    return this.draw('bar question', () => thesisChart(spec, histories, { ...extras, lang, title, checkLabel, question: true }));
+  }
+
   /** One asset with its averages, or two rebased to 100. */
   async forAssets(histories: History[], lang: Lang = 'en'): Promise<ChartFile | null> {
     if (!histories.length) return null;
@@ -232,8 +240,12 @@ export class Charts {
 
   /** The histories behind a thesis, each looked up as the kind it was stored as. */
   private async thesisHistories(t: Thesis): Promise<History[] | null> {
-    const symbols = t.spec.kind === 'relative' ? [t.spec.asset, t.spec.versus!] : [t.spec.asset];
-    const kinds = [t.spec.assetKind, t.spec.versusKind];
+    return this.specHistories(t.spec);
+  }
+
+  private async specHistories(spec: ThesisSpec): Promise<History[] | null> {
+    const symbols = spec.kind === 'relative' ? [spec.asset, spec.versus!] : [spec.asset];
+    const kinds = [spec.assetKind, spec.versusKind];
     const histories: History[] = [];
     for (const [i, symbol] of symbols.entries()) {
       const asset = await this.deps.history.identify(symbol, kinds[i]).catch(() => null);

@@ -1,0 +1,94 @@
+import { describe, expect, it } from 'vitest';
+import { POOL, outcomeOf, questionText, roundLevel, ruleFor } from '../src/bar/questions.js';
+import { BarRunner } from '../src/bar/runner.js';
+import { BarStore } from '../src/bar/store.js';
+import { openDb } from '../src/db/index.js';
+import { barQuestionContainer, parseBarButtonId } from '../src/discord/barCards.js';
+
+const HOUR = 3_600_000;
+const DAY = 24 * HOUR;
+const NOON = Date.UTC(2026, 10, 8, 13, 0, 30);
+const closes = Array.from({ length: 400 }, (_, i) => ({ date: new Date(NOON - (400 - i) * DAY).toISOString().slice(0, 10), close: 100 + (i % 3) }));
+const history = {
+  identify: async (symbol: string) => ({ symbol, kind: 'crypto' as const, pair: `${symbol}USDT` }),
+  daily: async (asset: { symbol: string }) => ({ asset, closes, source: 'Binance' }),
+} as never;
+
+function setup(prices: number[]) {
+  const store = new BarStore(openDb(':memory:'));
+  let clock = NOON;
+  let i = 0;
+  const measure = { now: async () => prices[Math.min(i++, prices.length - 1)]! };
+  const runner = new BarRunner({ store, measure, history, now: () => clock });
+  return { store, runner, at: (ms: number) => (clock = ms) };
+}
+
+describe('the bar question', () => {
+  it('asks only about the coins everyone follows, a different one each day', () => {
+    expect(new Set(POOL.map((r) => r.asset))).toEqual(new Set(['BTC', 'ETH', 'SOL']));
+    expect(ruleFor('2026-11-08')).not.toEqual(ruleFor('2026-11-09'));
+  });
+
+  it('writes the question in each language', () => {
+    const rule = { kind: 'above' as const, asset: 'BTC', level: 81_000 };
+    expect(questionText(rule, 'en')).toBe('Will BTC be above 81,000 this time tomorrow?');
+    expect(questionText(rule, 'pt')).toBe('O BTC vai estar acima de 81,000 amanhã a esta hora?');
+    expect(questionText({ kind: 'up', asset: 'ETH' }, 'es')).toBe('¿Estará ETH más alto mañana a esta hora?');
+    expect(questionText({ kind: 'beats', asset: 'SOL', versus: 'ETH' }, 'zh')).toContain('跑赢 ETH');
+  });
+
+  it('picks a round number just above the price, and settles from the price a day later', () => {
+    expect(roundLevel(80_750)).toBe(81_000);
+    expect(roundLevel(2_431)).toBe(2_450);
+    expect(roundLevel(158.3)).toBe(159);
+    expect(outcomeOf({ kind: 'up', asset: 'BTC' }, 100, 101)).toBe(1);
+    expect(outcomeOf({ kind: 'up', asset: 'BTC' }, 100, 100)).toBe(0);
+    expect(outcomeOf({ kind: 'above', asset: 'BTC', level: 81_000 }, 80_750, 81_000)).toBe(1);
+  });
+
+  it('posts at 13:00 UTC, closes answers 8 hours later, settles after 24 hours, then posts the next', async () => {
+    const { store, runner, at } = setup([80_750, 81_900, 81_900]);
+    store.setChannel('g', 'c', 'pt', NOON);
+    at(NOON - 2 * HOUR);
+    expect(await runner.tick()).toEqual([]);
+    at(NOON);
+    const [opened] = await runner.tick();
+    expect(opened).toMatchObject({ kind: 'opened', question: { channelId: 'c', lang: 'pt', status: 'open' } });
+    const q = opened!.question;
+    expect(store.vote(q.id, 'ana', 1, NOON + HOUR)).toBe('ok');
+    expect(store.vote(q.id, 'ana', 0, NOON + 2 * HOUR)).toBe('changed');
+    expect(store.vote(q.id, 'bo', 1, NOON + 2 * HOUR)).toBe('ok');
+    at(NOON + 8 * HOUR);
+    expect((await runner.tick()).map((e) => e.kind)).toEqual(['closed']);
+    expect(store.vote(q.id, 'cy', 1, NOON + 8 * HOUR)).toBe('closed');
+    at(NOON + DAY);
+    const events = await runner.tick();
+    expect(events.map((e) => e.kind)).toEqual(['settled', 'opened']);
+    expect(store.get(q.id)).toMatchObject({ status: 'settled', endValue: 81_900 });
+  });
+
+  it('shows the answers, who read it right without pinging, and yesterday on the next card', async () => {
+    const { store, runner } = setup([80_750]);
+    const opened = await runner.open('g', 'c', 'en', true);
+    if (!('question' in opened)) throw new Error(opened.error);
+    const q = opened.question;
+    store.vote(q.id, '111', 1, NOON);
+    store.vote(q.id, '222', 0, NOON);
+    const open = JSON.stringify(barQuestionContainer(q, store.votes(q.id), { chart: true }).toJSON());
+    expect(open).toContain('2 answers so far');
+    expect(open).toContain('bar:with:');
+    store.close(q.id);
+    store.settle(q.id, q.rule.kind === 'beats' ? q.startValue * 1.01 : 99_999, 1);
+    const done = store.get(q.id)!;
+    const settled = JSON.stringify(barQuestionContainer(done, store.votes(q.id)).toJSON());
+    expect(settled).toContain('Result: yes.');
+    expect(settled).toContain('1 of 2 read it right: <@111>');
+    expect(settled).not.toContain('bar:with:');
+    // The next day's post carries the result: who read it right and who missed, named but not pinged.
+    const next = JSON.stringify(barQuestionContainer({ ...q, id: 99, day: '2026-11-09' }, [], { yesterday: { question: done, votes: store.votes(q.id) } }).toJSON());
+    expect(next).toContain('**Yesterday:**');
+    expect(next).toContain('✓ **Read it right (1):** <@111>');
+    expect(next).toContain('✗ **Missed (1):** <@222>');
+    expect(parseBarButtonId('bar:against:7')).toEqual({ action: 'against', id: 7 });
+  });
+});

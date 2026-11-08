@@ -1,4 +1,7 @@
 import { MarketContext } from './analysis/context.js';
+import { BarRunner } from './bar/runner.js';
+import { BarStore } from './bar/store.js';
+import { runBar } from './discord/barButtons.js';
 import { WebNews } from './news/webNews.js';
 import { createHash } from 'node:crypto';
 import { type Client, Events, GatewayCloseCodes, type Guild } from 'discord.js';
@@ -116,7 +119,10 @@ const conversation = new Conversation({
   metrics,
   replies: new ReplyIndex(db),
 });
-const commandDeps = { config, feed, members, theses, take, measure, desk, alerts, memory, activity, llm, metrics, spend, charts };
+// The daily bar question: one relatable question a day in the channels an admin turned it on in.
+const barStore = new BarStore(db);
+const bar = { bar: barStore, runner: new BarRunner({ store: barStore, measure, history }), members, metrics, charts };
+const commandDeps = { config, feed, members, theses, take, measure, desk, alerts, memory, activity, llm, metrics, spend, charts, bar };
 
 let client: Client;
 let alertWatcher: AlertWatcher | null = null;
@@ -209,6 +215,7 @@ async function tick(): Promise<void> {
   await announceVerdicts(client, theses, settled, charts);
   await expireDrafts(client, theses, Date.now());
   await alertWatcher?.tick();
+  await runBar(client, bar);
   void refreshTape().catch((err) => log.warn('Tape refresh failed', err));
   void analystSync?.tick();
   void nfts.tick();
