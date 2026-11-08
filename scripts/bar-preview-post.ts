@@ -2,7 +2,9 @@
  * Posts a preview of the bar question card (live prices and chart, a sample "yesterday" section) to a
  * channel through Discord's REST API, without logging in as the bot. Its buttons are for looks only.
  *
- *   npx tsx scripts/bar-preview-post.ts <server name> <channel name> [en,pt,...]
+ *   npx tsx scripts/bar-preview-post.ts <server name> <channel name> [en,pt,...] [--question-only]
+ *
+ * --question-only leaves out the sample result, which names a real member: use it on a real server.
  */
 import { MarketHistory } from '../src/analysis/history.js';
 import { type BarRule, chartTitle, iso, roundLevel, ruleFor, specOf } from '../src/bar/questions.js';
@@ -16,7 +18,8 @@ import { cards } from '../src/discord/ui.js';
 import type { Lang } from '../src/lang.js';
 import { CryptoQuotes } from '../src/quotes.js';
 
-const [serverName, channelName, langList = 'en'] = process.argv.slice(2);
+const questionOnly = process.argv.includes('--question-only');
+const [serverName, channelName, langList = 'en'] = process.argv.slice(2).filter((a) => !a.startsWith('--'));
 const config = loadConfig();
 const API = 'https://discord.com/api/v10';
 const auth = { Authorization: `Bot ${config.discord.token}` };
@@ -67,6 +70,7 @@ for (const lang of langList.split(',') as Lang[]) {
   const sent = (await res.json()) as { id?: string; message?: string };
   console.log(lang, 'question', res.status, sent.message ?? 'posted', chart ? `${Math.round(chart.data.length / 1024)} KB` : 'no picture');
   // A sample result, as the reply it would be the next day.
+  if (questionOnly) continue;
   const result = JSON.parse(JSON.stringify({ ...cards([barResultContainer(yesterday, votes)]), message_reference: sent.id ? { message_id: sent.id } : undefined }));
   const r = await fetch(`${API}/channels/${channel.id}/messages`, { method: 'POST', headers: { ...auth, 'Content-Type': 'application/json' }, body: JSON.stringify(result) });
   console.log(lang, 'result', r.status);

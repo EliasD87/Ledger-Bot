@@ -30,7 +30,7 @@ import type { ServerMemory } from './memory.js';
 import { handlePageInteraction, showMyPage } from './pageButtons.js';
 import { myPageButton } from './pageCards.js';
 import { postableReply } from './text.js';
-import { type BarDeps, handleBarButton, postBarQuestion } from './barButtons.js';
+import { type BarDeps, DEFAULT_BAR_CHANNELS, handleBarButton, postBarQuestion } from './barButtons.js';
 import { handleThesisButton } from './thesisButtons.js';
 import { boardContainer, leaderDetail, recordContainer, thesisCard } from './thesisCards.js';
 import { ACCENT, card, cards, kicker, rebuilding, replyWithCards, row } from './ui.js';
@@ -235,8 +235,9 @@ async function barCommand(interaction: ChatInputCommandInteraction<'cached'>, de
   }
   const sub = interaction.options.getSubcommand();
   const channelId = interaction.channelId;
-  const configured = bar.bar.channels(interaction.guildId).find((c) => c.channelId === channelId);
   const named = 'name' in interaction.channel! ? String(interaction.channel.name) : '';
+  const byDefault = DEFAULT_BAR_CHANNELS[named];
+  const configured = bar.bar.channels(interaction.guildId).find((c) => c.channelId === channelId) ?? (byDefault && !bar.bar.isOff(channelId) ? { channelId, lang: byDefault } : undefined);
   if (sub === 'off') {
     bar.bar.setChannel(interaction.guildId, channelId, null, Date.now());
     await interaction.reply({ flags: MessageFlags.Ephemeral, content: configured ? 'The bar question is off in this channel.' : "The bar question wasn't on in this channel." });

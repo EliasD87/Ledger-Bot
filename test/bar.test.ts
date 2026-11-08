@@ -91,4 +91,19 @@ describe('the bar question', () => {
     expect(result).toContain('✗ **Missed (1):** <@222>');
     expect(parseBarButtonId('bar:against:7')).toEqual({ action: 'against', id: 7 });
   });
+
+  it('posts in the chat channels by default, and stays off where an admin turned it off', async () => {
+    const { store, runner, at } = setup([80_750]);
+    at(NOON);
+    const defaults = [
+      { guildId: 'g', channelId: 'pt-chat', lang: 'pt' as const },
+      { guildId: 'g', channelId: 'zh-chat', lang: 'zh' as const },
+    ];
+    store.setChannel('g', 'zh-chat', null, NOON);
+    const events = await runner.tick(defaults);
+    expect(events.map((e) => [e.kind, e.question.channelId, e.question.lang])).toEqual([['opened', 'pt-chat', 'pt']]);
+    expect(store.isOff('zh-chat')).toBe(true);
+    store.setChannel('g', 'zh-chat', 'zh', NOON);
+    expect(store.isOff('zh-chat')).toBe(false);
+  });
 });

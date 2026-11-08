@@ -4,6 +4,7 @@ import type { BarEvent, BarRunner } from '../bar/runner.js';
 import type { BarQuestion, BarStore } from '../bar/store.js';
 import { BAR_IMAGE, type Charts } from '../charts/maker.js';
 import { discordTime } from '../format.js';
+import type { Lang } from '../lang.js';
 import { log } from '../log.js';
 import type { Members } from '../members.js';
 import type { Metrics } from '../metrics.js';
@@ -56,9 +57,29 @@ async function postResult(client: Client, deps: BarDeps, q: BarQuestion): Promis
     .catch((err: unknown) => log.warn('Bar result post failed', err));
 }
 
+/**
+ * The channels that get the bar question without anyone turning it on: each server's chat channels by
+ * name, in their language. An admin can still turn one off (or another one on) with /ledger-bar.
+ */
+export const DEFAULT_BAR_CHANNELS: { [name: string]: Lang } = {
+  'general-chat': 'en',
+  'general-chat-portuguese': 'pt',
+  'general-chat-中文': 'zh',
+  'general-chat-日本語': 'ja',
+};
+
+function defaultChannels(client: Client) {
+  return [...client.guilds.cache.values()].flatMap((g) =>
+    [...g.channels.cache.values()].flatMap((c) => {
+      const lang = DEFAULT_BAR_CHANNELS[c.name];
+      return lang && c.isTextBased() ? [{ guildId: g.id, channelId: c.id, lang }] : [];
+    }),
+  );
+}
+
 /** Runs the bar question's clock and posts or updates what changed. */
 export async function runBar(client: Client, deps: BarDeps): Promise<void> {
-  const events = await deps.runner.tick().catch((err: unknown) => (log.warn('Bar question tick failed', err), [] as BarEvent[]));
+  const events = await deps.runner.tick(defaultChannels(client)).catch((err: unknown) => (log.warn('Bar question tick failed', err), [] as BarEvent[]));
   for (const ev of events) {
     if (ev.kind === 'opened') await postBarQuestion(client, deps, ev.question);
     else await refresh(client, deps, ev.question);

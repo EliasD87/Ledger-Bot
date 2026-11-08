@@ -48,13 +48,24 @@ export class BarStore {
     return row ? (JSON.parse(row.value) as BarChannel[]) : [];
   }
 
-  /** Turns the question on in a channel (or changes its language), or off with `lang` null. */
+  /**
+   * Turns the question on in a channel (or changes its language), or off with `lang` null. Off is remembered,
+   * so a channel that gets the question by default stays off once an admin turns it off.
+   */
   setChannel(guildId: string, channelId: string, lang: Lang | null, now: number): void {
     const rest = this.channels(guildId).filter((c) => c.channelId !== channelId);
     const next = lang ? [...rest, { channelId, lang }] : rest;
-    this.db
-      .prepare('INSERT INTO kv (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at')
-      .run(`bar:channels:${guildId}`, JSON.stringify(next), now);
+    const put = this.db.prepare(
+      'INSERT INTO kv (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at',
+    );
+    put.run(`bar:channels:${guildId}`, JSON.stringify(next), now);
+    put.run(`bar:off:${channelId}`, JSON.stringify(lang === null), now);
+  }
+
+  /** Whether an admin turned the question off in a channel. */
+  isOff(channelId: string): boolean {
+    const row = this.db.prepare('SELECT value FROM kv WHERE key = ?').get(`bar:off:${channelId}`) as { value: string } | undefined;
+    return row ? (JSON.parse(row.value) as boolean) : false;
   }
 
   /** Every channel with the question on, on every server. */

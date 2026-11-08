@@ -3,7 +3,7 @@ import type { Lang } from '../lang.js';
 import { log } from '../log.js';
 import type { Measure } from '../theses/measure.js';
 import { type BarRule, iso, ledgerSide, outcomeOf, roundLevel, ruleFor, specOf } from './questions.js';
-import type { BarQuestion, BarStore } from './store.js';
+import type { BarChannel, BarQuestion, BarStore } from './store.js';
 
 export type BarEvent = { kind: 'opened' | 'closed' | 'settled'; question: BarQuestion };
 
@@ -35,7 +35,8 @@ export class BarRunner {
     return (this.deps.now ?? Date.now)();
   }
 
-  async tick(): Promise<BarEvent[]> {
+  /** `defaults`: channels that get the question without being turned on (the server's chat channels). */
+  async tick(defaults: (BarChannel & { guildId: string })[] = []): Promise<BarEvent[]> {
     if (this.busy) return [];
     this.busy = true;
     try {
@@ -44,7 +45,7 @@ export class BarRunner {
       for (const q of store.toClose(this.now)) if (store.close(q.id)) events.push({ kind: 'closed', question: store.get(q.id)! });
       // Yesterday's result first, so today's question can say how it went.
       await this.settleDue(events);
-      await this.openDue(events);
+      await this.openDue(events, defaults);
       return events;
     } finally {
       this.busy = false;
@@ -79,7 +80,7 @@ export class BarRunner {
     return question ? { question } : { error: "Today's question is already up in this channel." };
   }
 
-  private async openDue(events: BarEvent[]): Promise<void> {
+  private async openDue(events: BarEvent[], defaults: (BarChannel & { guildId: string })[]): Promise<void> {
     const now = this.now;
     const day = iso(now);
     const start = Date.parse(`${day}T00:00:00Z`) + OPEN_HOUR * HOUR;
@@ -87,7 +88,9 @@ export class BarRunner {
     if (now < start || now > start + LATE_HOURS * HOUR) return;
     // A channel whose last question settles in the next few minutes waits for it, so today's can show the result.
     const waiting = new Set(this.deps.store.toSettle(now + 10 * 60_000).map((q) => q.channelId));
-    for (const c of this.deps.store.allChannels()) {
+    const turnedOn = this.deps.store.allChannels();
+    const channels = [...turnedOn, ...defaults.filter((d) => !turnedOn.some((c) => c.channelId === d.channelId) && !this.deps.store.isOff(d.channelId))];
+    for (const c of channels) {
       if (this.deps.store.forDay(c.channelId, day) || waiting.has(c.channelId)) continue;
       const key = `open:${c.channelId}:${day}`;
       if (now - (this.tried.get(key) ?? 0) < 5 * 60_000) continue;
