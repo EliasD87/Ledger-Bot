@@ -7,7 +7,7 @@ import { barQuestionContainer, barResultContainer, parseBarButtonId } from '../s
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
-const NOON = Date.UTC(2026, 10, 8, 13, 0, 30);
+const NOON = Date.UTC(2026, 10, 8, 6, 0, 30);
 const closes = Array.from({ length: 400 }, (_, i) => ({ date: new Date(NOON - (400 - i) * DAY).toISOString().slice(0, 10), close: 100 + (i % 3) }));
 const history = {
   identify: async (symbol: string) => ({ symbol, kind: 'crypto' as const, pair: `${symbol}USDT` }),
@@ -46,7 +46,7 @@ describe('the bar question', () => {
     expect(outcomeOf({ kind: 'above', asset: 'BTC', level: 81_000 }, 80_750, 81_000)).toBe(1);
   });
 
-  it('posts at 13:00 UTC, closes answers 8 hours later, settles after 24 hours, then posts the next', async () => {
+  it('posts at 06:00 UTC, closes answers 8 hours later, settles after 24 hours, then posts the next', async () => {
     const { store, runner, at } = setup([80_750, 81_900, 81_900]);
     store.setChannel('g', 'c', 'pt', NOON);
     at(NOON - 2 * HOUR);

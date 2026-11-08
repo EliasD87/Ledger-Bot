@@ -70,7 +70,7 @@ export const DEFAULT_BAR_CHANNELS: { [name: string]: Lang } = {
   'general-chat-日本語': 'ja',
 };
 
-function defaultChannels(client: Client) {
+export function defaultChannels(client: Client) {
   return [...client.guilds.cache.values()].flatMap((g) =>
     [...g.channels.cache.values()].flatMap((c) => {
       const lang = DEFAULT_BAR_CHANNELS[c.name];

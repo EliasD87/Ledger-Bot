@@ -30,7 +30,7 @@ import type { ServerMemory } from './memory.js';
 import { handlePageInteraction, showMyPage } from './pageButtons.js';
 import { myPageButton } from './pageCards.js';
 import { postableReply } from './text.js';
-import { type BarDeps, DEFAULT_BAR_CHANNELS, handleBarButton, postBarQuestion } from './barButtons.js';
+import { type BarDeps, DEFAULT_BAR_CHANNELS, defaultChannels, handleBarButton, postBarQuestion } from './barButtons.js';
 import { handleThesisButton } from './thesisButtons.js';
 import { boardContainer, leaderDetail, recordContainer, thesisCard } from './thesisCards.js';
 import { ACCENT, card, cards, kicker, rebuilding, replyWithCards, row } from './ui.js';
@@ -123,7 +123,7 @@ export const commandData = [
     .addSubcommand((s) =>
       s
         .setName('on')
-        .setDescription('Post the bar question here every day at 13:00 UTC')
+        .setDescription('Post the bar question here every day at 06:00 UTC')
         .addStringOption((o) =>
           o
             .setName('language')
@@ -138,7 +138,12 @@ export const commandData = [
         ),
     )
     .addSubcommand((s) => s.setName('off').setDescription('Stop the bar question in this channel'))
-    .addSubcommand((s) => s.setName('now').setDescription("Post today's bar question here now, to try it"))
+    .addSubcommand((s) =>
+      s
+        .setName('now')
+        .setDescription("Post today's bar question here now, to try it")
+        .addBooleanOption((o) => o.setName('everywhere').setDescription("Post today's question now in every channel that gets it, on every server")),
+    )
     .addSubcommand((s) =>
       s
         .setName('headline')
@@ -245,15 +250,15 @@ async function barCommand(interaction: ChatInputCommandInteraction<'cached'>, de
   const byDefault = DEFAULT_BAR_CHANNELS[named];
   const configured = bar.bar.channels(interaction.guildId).find((c) => c.channelId === channelId) ?? (byDefault && !bar.bar.isOff(channelId) ? { channelId, lang: byDefault } : undefined);
   if (sub === 'headline') {
-    // For today's question until it posts at 13:00 UTC, then for tomorrow's.
+    // For today's question until it posts at 06:00 UTC, then for tomorrow's.
     const now = Date.now();
     const today = new Date(now).toISOString().slice(0, 10);
-    const day = now < Date.parse(`${today}T13:00:00Z`) ? today : new Date(now + 86_400_000).toISOString().slice(0, 10);
+    const day = now < Date.parse(`${today}T06:00:00Z`) ? today : new Date(now + 86_400_000).toISOString().slice(0, 10);
     const text = interaction.options.getString('text')?.trim() || null;
     bar.bar.setHeadline(day, text, now);
     await interaction.reply({
       flags: MessageFlags.Ephemeral,
-      content: text ? `The bar question on ${day} (13:00 UTC) will show: **${text}**` : `No headline on the bar question on ${day}.`,
+      content: text ? `The bar question on ${day} (06:00 UTC) will show: **${text}**` : `No headline on the bar question on ${day}.`,
     });
     return;
   }
@@ -267,11 +272,24 @@ async function barCommand(interaction: ChatInputCommandInteraction<'cached'>, de
     bar.bar.setChannel(interaction.guildId, channelId, lang, Date.now());
     await interaction.reply({
       flags: MessageFlags.Ephemeral,
-      content: `The bar question posts here every day at 13:00 UTC, in ${{ en: 'English', pt: 'Portuguese', es: 'Spanish', zh: 'Chinese', ja: 'Japanese' }[lang]}. Answers stay open for 8 hours. 24 hours after it posts, the result goes up as a reply: who read it right and who missed. Use \`/ledger-bar now\` to post today's right away.`,
+      content: `The bar question posts here every day at 06:00 UTC, in ${{ en: 'English', pt: 'Portuguese', es: 'Spanish', zh: 'Chinese', ja: 'Japanese' }[lang]}. Answers stay open for 8 hours. 24 hours after it posts, the result goes up as a reply: who read it right and who missed. Use \`/ledger-bar now\` to post today's right away.`,
     });
     return;
   }
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  if (interaction.options.getBoolean('everywhere')) {
+    // Today's question now, in every channel that gets it (the chat channels, and any turned on), on every server.
+    const turnedOn = bar.bar.allChannels();
+    const targets = [...turnedOn, ...defaultChannels(interaction.client).filter((d) => !turnedOn.some((c) => c.channelId === d.channelId) && !bar.bar.isOff(d.channelId))];
+    const lines: string[] = [];
+    for (const t of targets) {
+      const opened = await bar.runner.open(t.guildId, t.channelId, t.lang, true);
+      const link = 'question' in opened ? await postBarQuestion(interaction.client, bar, opened.question) : null;
+      lines.push(`<#${t.channelId}>: ${'error' in opened ? opened.error : (link ?? "couldn't post")}`);
+    }
+    await interaction.editReply(lines.length ? lines.join('\n') : 'No channels get the bar question yet.');
+    return;
+  }
   const opened = await bar.runner.open(interaction.guildId, channelId, configured?.lang ?? langOfChannel(named), true);
   if ('error' in opened) {
     await interaction.editReply(opened.error);

@@ -9,11 +9,11 @@ export type BarEvent = { kind: 'opened' | 'closed' | 'settled'; question: BarQue
 
 const HOUR = 3_600_000;
 /**
- * It posts at 13:00 UTC, the hour the most different members are active on CybeReator: morning in Brazil
- * (10:00), evening in China and Japan (21:00, 22:00). Answers stay open for 8 hours, through the 17:00 to
- * 18:00 rush, and it settles 24 hours after posting, just before the next one goes up with the result.
+ * It posts at 06:00 UTC: the owner moved it there from 13:00 UTC (the hour the most different members are
+ * active) to start the first one at once. Answers stay open for 8 hours, and it settles 24 hours after
+ * posting, just before the next one goes up.
  */
-export const OPEN_HOUR = 13;
+export const OPEN_HOUR = 6;
 export const ANSWER_HOURS = 8;
 const LATE_HOURS = 6;
 
