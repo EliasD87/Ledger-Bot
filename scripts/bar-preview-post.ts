@@ -7,7 +7,7 @@
  * --question-only leaves out the sample result, which names a real member: use it on a real server.
  */
 import { MarketHistory } from '../src/analysis/history.js';
-import { type BarRule, chartTitle, iso, roundLevel, ruleFor, specOf } from '../src/bar/questions.js';
+import { type BarRule, chartTitle, iso, levelFor, ruleFor, specOf } from '../src/bar/questions.js';
 import type { BarQuestion } from '../src/bar/store.js';
 import { BinanceFeed } from '../src/calls/prices.js';
 import { Charts } from '../src/charts/maker.js';
@@ -47,11 +47,14 @@ const now = Date.now();
 const today = iso(now);
 const base = ruleFor(today);
 const start = base.kind === 'beats' ? price(base.asset) / price(base.versus!) : price(base.asset);
-const rule: BarRule = base.kind === 'above' ? { ...base, level: roundLevel(start) } : base;
+const level = levelFor(base, start);
+const rule: BarRule = level !== undefined ? { ...base, level } : base;
+// Big scheduled events today (CPI, FOMC, jobs), as the bot shows them.
+const events = (await charts.runwayEvents(now, now)).map((e) => e.label.split(' ')[0]!);
 const eth = stats.ETHUSDT!;
 const question = (lang: Lang, r: BarRule, extra: Partial<BarQuestion>): BarQuestion => ({
   id: 0, guildId: guild.id, channelId: channel.id, lang, messageId: null, day: today, rule: r, startValue: start, ledger: 1, ledgerShare: 0.52,
-  opensAt: now, closesAt: now + 8 * 3_600_000, settlesAt: now + 24 * 3_600_000, status: 'open', endValue: null, outcome: null, ...extra,
+  opensAt: now, closesAt: now + 8 * 3_600_000, settlesAt: now + 24 * 3_600_000, status: 'open', endValue: null, outcome: null, touchedAt: null, ...extra,
 });
 
 for (const lang of langList.split(',') as Lang[]) {
@@ -62,7 +65,7 @@ for (const lang of langList.split(',') as Lang[]) {
   // The sample: the member read it right, and Ledger stands in for someone who missed.
   const votes = [{ userId: member, value: yesterday.outcome! }, { userId: me.id, value: 1 - yesterday.outcome! }];
   const chart = await charts.barQuestion(specOf(rule), chartTitle(rule, lang), barWords(lang).chartResult, lang);
-  const payload = JSON.parse(JSON.stringify(cards([barQuestionContainer(q, [], { chart: !!chart })])));
+  const payload = JSON.parse(JSON.stringify(cards([barQuestionContainer(q, [], { chart: !!chart, events })])));
   const form = new FormData();
   form.append('payload_json', JSON.stringify(payload));
   if (chart) form.append('files[0]', new Blob([new Uint8Array(chart.data)], { type: 'image/gif' }), chart.name);

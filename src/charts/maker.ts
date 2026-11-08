@@ -85,8 +85,9 @@ export class Charts {
     const histories = await this.specHistories(spec);
     if (!histories || measuredSeries(spec, histories).length < 2) return null;
     const extras = await this.extras(histories, 7, spec.kind === 'relative');
+    const events = await this.runwayEvents(this.now, this.now + DAY, lang).catch(() => []);
     try {
-      const svg = thesisChart(spec, histories, { ...extras, lang, title, checkLabel, question: true });
+      const svg = thesisChart(spec, histories, { ...extras, events, lang, title, checkLabel, question: true });
       const data = this.deps.renderer ? await this.deps.renderer.render(svg, { gif: true }) : toBarGif(svg);
       return { name: BAR_IMAGE, data };
     } catch (err) {

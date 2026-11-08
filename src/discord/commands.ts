@@ -138,7 +138,13 @@ export const commandData = [
         ),
     )
     .addSubcommand((s) => s.setName('off').setDescription('Stop the bar question in this channel'))
-    .addSubcommand((s) => s.setName('now').setDescription("Post today's bar question here now, to try it")),
+    .addSubcommand((s) => s.setName('now').setDescription("Post today's bar question here now, to try it"))
+    .addSubcommand((s) =>
+      s
+        .setName('headline')
+        .setDescription('A major headline for the next bar question, on every server (blank text clears it)')
+        .addStringOption((o) => o.setName('text').setDescription('e.g. "Fed cuts rates by 0.25%"').setMaxLength(200)),
+    ),
   guildCommand('ledger-admin', 'Engagement numbers, or void a thesis (admins)')
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .addSubcommand((s) => s.setName('stats').setDescription('Habit numbers for this server'))
@@ -238,6 +244,19 @@ async function barCommand(interaction: ChatInputCommandInteraction<'cached'>, de
   const named = 'name' in interaction.channel! ? String(interaction.channel.name) : '';
   const byDefault = DEFAULT_BAR_CHANNELS[named];
   const configured = bar.bar.channels(interaction.guildId).find((c) => c.channelId === channelId) ?? (byDefault && !bar.bar.isOff(channelId) ? { channelId, lang: byDefault } : undefined);
+  if (sub === 'headline') {
+    // For today's question until it posts at 13:00 UTC, then for tomorrow's.
+    const now = Date.now();
+    const today = new Date(now).toISOString().slice(0, 10);
+    const day = now < Date.parse(`${today}T13:00:00Z`) ? today : new Date(now + 86_400_000).toISOString().slice(0, 10);
+    const text = interaction.options.getString('text')?.trim() || null;
+    bar.bar.setHeadline(day, text, now);
+    await interaction.reply({
+      flags: MessageFlags.Ephemeral,
+      content: text ? `The bar question on ${day} (13:00 UTC) will show: **${text}**` : `No headline on the bar question on ${day}.`,
+    });
+    return;
+  }
   if (sub === 'off') {
     bar.bar.setChannel(interaction.guildId, channelId, null, Date.now());
     await interaction.reply({ flags: MessageFlags.Ephemeral, content: configured ? 'The bar question is off in this channel.' : "The bar question wasn't on in this channel." });

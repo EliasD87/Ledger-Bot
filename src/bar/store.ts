@@ -20,6 +20,8 @@ export interface BarQuestion {
   status: 'open' | 'closed' | 'settled' | 'void';
   endValue: number | null;
   outcome: number | null;
+  /** When the price touched the level, for questions that count on touch. */
+  touchedAt: number | null;
 }
 
 export interface BarVote {
@@ -34,7 +36,7 @@ export interface BarChannel {
 }
 
 const COLUMNS = `id, guild_id AS guildId, channel_id AS channelId, lang, message_id AS messageId, day, rule, start_value AS startValue,
-  ledger, ledger_share AS ledgerShare, opens_at AS opensAt, closes_at AS closesAt, settles_at AS settlesAt, status, end_value AS endValue, outcome`;
+  ledger, ledger_share AS ledgerShare, opens_at AS opensAt, closes_at AS closesAt, settles_at AS settlesAt, status, end_value AS endValue, outcome, touched_at AS touchedAt`;
 type Row = Omit<BarQuestion, 'rule'> & { rule: string };
 const parse = (r: Row | undefined): BarQuestion | undefined => (r ? { ...r, rule: JSON.parse(r.rule) as BarRule } : undefined);
 
@@ -62,6 +64,18 @@ export class BarStore {
     put.run(`bar:off:${channelId}`, JSON.stringify(lang === null), now);
   }
 
+  /** A headline someone picked for a day's question, shown on it in every server. */
+  headline(day: string): string | null {
+    const row = this.db.prepare('SELECT value FROM kv WHERE key = ?').get(`bar:headline:${day}`) as { value: string } | undefined;
+    return row ? (JSON.parse(row.value) as string | null) : null;
+  }
+
+  setHeadline(day: string, text: string | null, now: number): void {
+    this.db
+      .prepare('INSERT INTO kv (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at')
+      .run(`bar:headline:${day}`, JSON.stringify(text), now);
+  }
+
   /** Whether an admin turned the question off in a channel. */
   isOff(channelId: string): boolean {
     const row = this.db.prepare('SELECT value FROM kv WHERE key = ?').get(`bar:off:${channelId}`) as { value: string } | undefined;
@@ -74,7 +88,7 @@ export class BarStore {
     return rows.flatMap((r) => (JSON.parse(r.value) as BarChannel[]).map((c) => ({ ...c, guildId: r.key.slice('bar:channels:'.length) })));
   }
 
-  create(q: Omit<BarQuestion, 'id' | 'messageId' | 'status' | 'endValue' | 'outcome'>): BarQuestion | null {
+  create(q: Omit<BarQuestion, 'id' | 'messageId' | 'status' | 'endValue' | 'outcome' | 'touchedAt'>): BarQuestion | null {
     if (this.forDay(q.channelId, q.day)) return null;
     const { lastInsertRowid } = this.db
       .prepare(
@@ -126,6 +140,22 @@ export class BarStore {
 
   votes(id: number): BarVote[] {
     return this.db.prepare('SELECT user_id AS userId, value FROM bar_votes WHERE question_id = ? ORDER BY created_at').all(id) as unknown as BarVote[];
+  }
+
+  /** Questions not yet settled, to watch for the price touching their level. */
+  unsettled(): BarQuestion[] {
+    return (this.db.prepare(`SELECT ${COLUMNS} FROM bar_questions WHERE status IN ('open', 'closed') AND touched_at IS NULL`).all() as unknown as Row[]).map(
+      (r) => parse(r)!,
+    );
+  }
+
+  touch(id: number, at: number): void {
+    this.db.prepare('UPDATE bar_questions SET touched_at = ? WHERE id = ? AND touched_at IS NULL').run(at, id);
+  }
+
+  /** Answers close early, the moment the price touches the level. */
+  closeNow(id: number, now: number): boolean {
+    return this.db.prepare("UPDATE bar_questions SET status = 'closed', closes_at = ? WHERE id = ? AND status = 'open'").run(now, id).changes > 0;
   }
 
   /** Open questions whose answers should close. */

@@ -401,4 +401,8 @@ export const migrations: string[] = [
     PRIMARY KEY (question_id, user_id)
   );
   `,
+  // 14: bar questions that count on touch ("reach 2,300 within 24 hours") remember when the price got there.
+  `
+  ALTER TABLE bar_questions ADD COLUMN touched_at INTEGER;
+  `,
 ];

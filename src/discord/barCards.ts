@@ -1,5 +1,5 @@
 import { ButtonBuilder, ButtonStyle } from 'discord.js';
-import { type BarRule, formatLevel, questionText } from '../bar/questions.js';
+import { type BarRule, formatLevel, questionText, reachedLevel, touches } from '../bar/questions.js';
 import type { BarQuestion, BarVote } from '../bar/store.js';
 import { BAR_IMAGE } from '../charts/maker.js';
 import { discordTime } from '../format.js';
@@ -24,6 +24,12 @@ const pct = (x: number) => `${(Math.abs(x) * 100).toFixed(1)}%`;
 const WORDS = {
   en: {
     label: 'Bar question',
+    headline: 'Headline',
+    touch: 'It counts the moment the price gets there, and answers close then too.',
+    reachedTo: (asset: string, level: string, x: string) => `${asset} got to ${level} (as far as ${x}).`,
+    highWas: (asset: string, x: string) => `${asset}'s high was ${x}.`,
+    lowWas: (asset: string, x: string) => `${asset}'s low was ${x}.`,
+    bigNews: (names: string) => `Big one today: ${names}.`,
     chartResult: 'result',
     with: 'With',
     against: 'Against',
@@ -51,6 +57,12 @@ const WORDS = {
   },
   pt: {
     label: 'Pergunta do bar',
+    headline: 'Manchete',
+    touch: 'Vale no momento em que o preço chegar lá, e as respostas fecham na hora.',
+    reachedTo: (asset: string, level: string, x: string) => `O ${asset} chegou a ${level} (foi até ${x}).`,
+    highWas: (asset: string, x: string) => `A máxima do ${asset} foi ${x}.`,
+    lowWas: (asset: string, x: string) => `A mínima do ${asset} foi ${x}.`,
+    bigNews: (names: string) => `Evento grande hoje: ${names}.`,
     chartResult: 'resultado',
     with: 'A favor',
     against: 'Contra',
@@ -78,6 +90,12 @@ const WORDS = {
   },
   es: {
     label: 'Pregunta del bar',
+    headline: 'Titular',
+    touch: 'Cuenta en el momento en que el precio llegue, y las respuestas se cierran ahí.',
+    reachedTo: (asset: string, level: string, x: string) => `${asset} llegó a ${level} (hasta ${x}).`,
+    highWas: (asset: string, x: string) => `El máximo de ${asset} fue ${x}.`,
+    lowWas: (asset: string, x: string) => `El mínimo de ${asset} fue ${x}.`,
+    bigNews: (names: string) => `Evento grande hoy: ${names}.`,
     chartResult: 'resultado',
     with: 'A favor',
     against: 'En contra',
@@ -105,6 +123,12 @@ const WORDS = {
   },
   zh: {
     label: '酒吧每日一问',
+    headline: '头条',
+    touch: '价格一到就算，回答也同时截止。',
+    reachedTo: (asset: string, level: string, x: string) => `${asset} 到了 ${level}（最远到 ${x}）。`,
+    highWas: (asset: string, x: string) => `${asset} 最高 ${x}。`,
+    lowWas: (asset: string, x: string) => `${asset} 最低 ${x}。`,
+    bigNews: (names: string) => `今天有大事：${names}。`,
     chartResult: '结果',
     with: '支持',
     against: '反对',
@@ -132,6 +156,12 @@ const WORDS = {
   },
   ja: {
     label: 'バーの今日の質問',
+    headline: 'ヘッドライン',
+    touch: '価格が届いた時点で成立し、回答もそこで締め切ります。',
+    reachedTo: (asset: string, level: string, x: string) => `${asset} は ${level} に届きました（${x} まで）。`,
+    highWas: (asset: string, x: string) => `${asset} の高値は ${x} でした。`,
+    lowWas: (asset: string, x: string) => `${asset} の安値は ${x} でした。`,
+    bigNews: (names: string) => `今日の大きな予定：${names}`,
     chartResult: '結果',
     with: '賛成',
     against: '反対',
@@ -164,6 +194,11 @@ export const barWords = (lang: Lang): Words => WORDS[lang] as Words;
 /** "BTC went from 80,750 to 81,900." or "ETH did 1.2% better than BTC." */
 function movedLine(w: Words, rule: BarRule, start: number, end: number): string {
   if (rule.kind === 'beats') return w.relative(rule.asset, rule.versus!, pct(end / start - 1), end > start);
+  // Touch questions: how far it got in the 24 hours.
+  if (touches(rule)) {
+    if (reachedLevel(rule, end)) return w.reachedTo(rule.asset, formatLevel(rule.level!), formatLevel(end));
+    return rule.kind === 'reach' ? w.highWas(rule.asset, formatLevel(end)) : w.lowWas(rule.asset, formatLevel(end));
+  }
   return w.moved(rule.asset, formatLevel(start), formatLevel(end));
 }
 
@@ -189,7 +224,7 @@ export function barResultContainer(q: BarQuestion, votes: BarVote[]) {
   ]);
 }
 
-export function barQuestionContainer(q: BarQuestion, votes: BarVote[], opts: { chart?: boolean } = {}) {
+export function barQuestionContainer(q: BarQuestion, votes: BarVote[], opts: { chart?: boolean; events?: string[]; headline?: string | null } = {}) {
   const w = barWords(q.lang);
   const withCount = votes.filter((v) => v.value === 1).length;
   const share = `${Math.round(q.ledgerShare * 100)}%`;
@@ -204,7 +239,11 @@ export function barQuestionContainer(q: BarQuestion, votes: BarVote[], opts: { c
   if (q.status === 'open') {
     return card(ACCENT.amber, [
       ...header,
-      w.howTo(discordTime(q.closesAt, 't')),
+      [w.howTo(discordTime(q.closesAt, 't')), touches(q.rule) && w.touch].filter(Boolean).join(' '),
+      // Big scheduled news in the window (CPI, the Fed, jobs): the kind of day prices move.
+      !!opts.events?.length && `**${w.bigNews(opts.events.join(', '))}**`,
+      // A major headline picked by hand for the day.
+      opts.headline && `**${w.headline}:** ${opts.headline}`,
       kicker(
         [w.answers(votes.length), w.resultAt(discordTime(q.settlesAt, 'R')), q.rule.kind !== 'beats' && w.now(q.rule.asset, formatLevel(q.startValue))]
           .filter(Boolean)

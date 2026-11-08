@@ -28,8 +28,10 @@ export async function postBarQuestion(client: Client, deps: BarDeps, q: BarQuest
   }
   const w = barWords(q.lang);
   const chart = await deps.charts?.barQuestion(specOf(q.rule), chartTitle(q.rule, q.lang), w.chartResult, q.lang).catch(() => null);
+  // Big scheduled releases today (CPI, FOMC, jobs): named on the card and marked on the chart.
+  const events = ((await deps.charts?.runwayEvents(q.opensAt, q.opensAt).catch(() => [])) ?? []).map((e) => e.label.split(' ')[0]!);
   const sent = await channel
-    .send({ ...cards([barQuestionContainer(q, [], { chart: !!chart })]), files: chart ? [{ attachment: chart.data, name: chart.name }] : [] })
+    .send({ ...cards([barQuestionContainer(q, [], { chart: !!chart, events, headline: deps.bar.headline(q.day) })]), files: chart ? [{ attachment: chart.data, name: chart.name }] : [] })
     .catch((err: unknown) => (log.warn('Bar question post failed', err), null));
   if (sent) deps.bar.attachMessage(q.id, sent.id);
   return sent?.url ?? null;
