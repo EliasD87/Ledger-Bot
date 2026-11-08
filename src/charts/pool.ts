@@ -24,17 +24,21 @@ export class ChartRenderer {
   private idle: NodeJS.Timeout | null = null;
   private readonly jobs = new Map<number, Job>();
 
-  async render(svg: string): Promise<Buffer> {
+  /** A PNG, or with `gif` the chart over the animated bar scene (slower, so it gets longer). */
+  async render(svg: string, opts: { gif?: boolean } = {}): Promise<Buffer> {
     const child = this.helper();
     this.renders++;
     const id = this.nextId++;
     return new Promise<Buffer>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.finish(id, new Error('Chart took too long to draw'));
-        child.kill();
-      }, TIMEOUT_MS);
+      const timer = setTimeout(
+        () => {
+          this.finish(id, new Error('Chart took too long to draw'));
+          child.kill();
+        },
+        opts.gif ? 4 * TIMEOUT_MS : TIMEOUT_MS,
+      );
       this.jobs.set(id, { child, resolve, reject, timer });
-      child.send({ id, svg });
+      child.send({ id, svg, gif: opts.gif });
     });
   }
 

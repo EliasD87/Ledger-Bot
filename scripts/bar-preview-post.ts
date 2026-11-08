@@ -9,8 +9,9 @@ import { type BarRule, chartTitle, iso, roundLevel, ruleFor, specOf } from '../s
 import type { BarQuestion } from '../src/bar/store.js';
 import { BinanceFeed } from '../src/calls/prices.js';
 import { Charts } from '../src/charts/maker.js';
+import { ChartRenderer } from '../src/charts/pool.js';
 import { loadConfig } from '../src/config.js';
-import { barQuestionContainer, barWords } from '../src/discord/barCards.js';
+import { barQuestionContainer, barResultContainer, barWords } from '../src/discord/barCards.js';
 import { cards } from '../src/discord/ui.js';
 import type { Lang } from '../src/lang.js';
 import { CryptoQuotes } from '../src/quotes.js';
@@ -33,7 +34,9 @@ const member = recent.find((m) => !m.author.bot)?.author.id ?? me.id;
 const feed = new BinanceFeed(config.priceFeedUrl);
 const crypto = new CryptoQuotes(feed);
 const history = new MarketHistory({ resolve: (a) => crypto.resolve(a), binance: feed });
-const charts = new Charts({ history, desk: null });
+// Through the chart helper process, like the bot.
+const renderer = new ChartRenderer();
+const charts = new Charts({ history, desk: null, renderer });
 const stats = (await crypto.stats24h(['BTCUSDT', 'ETHUSDT', 'SOLUSDT']))!;
 const price = (asset: string) => stats[`${asset}USDT`]!.price;
 
@@ -56,10 +59,16 @@ for (const lang of langList.split(',') as Lang[]) {
   // The sample: the member read it right, and Ledger stands in for someone who missed.
   const votes = [{ userId: member, value: yesterday.outcome! }, { userId: me.id, value: 1 - yesterday.outcome! }];
   const chart = await charts.barQuestion(specOf(rule), chartTitle(rule, lang), barWords(lang).chartResult, lang);
-  const payload = JSON.parse(JSON.stringify(cards([barQuestionContainer(q, [], { chart: !!chart, yesterday: { question: yesterday, votes } })])));
+  const payload = JSON.parse(JSON.stringify(cards([barQuestionContainer(q, [], { chart: !!chart })])));
   const form = new FormData();
   form.append('payload_json', JSON.stringify(payload));
-  if (chart) form.append('files[0]', new Blob([new Uint8Array(chart.data)], { type: 'image/png' }), chart.name);
+  if (chart) form.append('files[0]', new Blob([new Uint8Array(chart.data)], { type: 'image/gif' }), chart.name);
   const res = await fetch(`${API}/channels/${channel.id}/messages`, { method: 'POST', headers: auth, body: form });
-  console.log(lang, res.status, res.ok ? 'posted' : await res.text());
+  const sent = (await res.json()) as { id?: string; message?: string };
+  console.log(lang, 'question', res.status, sent.message ?? 'posted', chart ? `${Math.round(chart.data.length / 1024)} KB` : 'no picture');
+  // A sample result, as the reply it would be the next day.
+  const result = JSON.parse(JSON.stringify({ ...cards([barResultContainer(yesterday, votes)]), message_reference: sent.id ? { message_id: sent.id } : undefined }));
+  const r = await fetch(`${API}/channels/${channel.id}/messages`, { method: 'POST', headers: { ...auth, 'Content-Type': 'application/json' }, body: JSON.stringify(result) });
+  console.log(lang, 'result', r.status);
 }
+renderer.close();

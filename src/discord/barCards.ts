@@ -1,10 +1,10 @@
 import { ButtonBuilder, ButtonStyle } from 'discord.js';
 import { type BarRule, formatLevel, questionText } from '../bar/questions.js';
 import type { BarQuestion, BarVote } from '../bar/store.js';
-import { CHART_NAME } from '../charts/maker.js';
+import { BAR_IMAGE } from '../charts/maker.js';
 import { discordTime } from '../format.js';
 import type { Lang } from '../lang.js';
-import { ACCENT, card, divider, heading, kicker, picture, row } from './ui.js';
+import { ACCENT, card, heading, kicker, picture, row } from './ui.js';
 
 /**
  * The daily bar question's card. Open: the question, its chart and the With and Against buttons. Closed:
@@ -41,7 +41,6 @@ const WORDS = {
     nobody: 'Nobody answered this one.',
     ledgerResult: (right: boolean) => (right ? 'Ledger read it right too.' : 'Ledger missed this one.'),
     void: "No price came in, so this one doesn't count.",
-    yesterday: 'Yesterday',
     rightNames: 'Read it right',
     missedNames: 'Missed',
     voted: (side: string) => `You're **${side}**.`,
@@ -69,7 +68,6 @@ const WORDS = {
     nobody: 'Ninguém respondeu esta.',
     ledgerResult: (right: boolean) => (right ? 'O Ledger também acertou.' : 'O Ledger errou esta.'),
     void: 'O preço não chegou, então esta não conta.',
-    yesterday: 'Ontem',
     rightNames: 'Acertaram',
     missedNames: 'Erraram',
     voted: (side: string) => `Você está **${side}**.`,
@@ -97,7 +95,6 @@ const WORDS = {
     nobody: 'Nadie respondió esta.',
     ledgerResult: (right: boolean) => (right ? 'Ledger también acertó.' : 'Ledger falló esta.'),
     void: 'No llegó el precio, así que esta no cuenta.',
-    yesterday: 'Ayer',
     rightNames: 'Acertaron',
     missedNames: 'Fallaron',
     voted: (side: string) => `Estás **${side}**.`,
@@ -125,7 +122,6 @@ const WORDS = {
     nobody: '这题没有人回答。',
     ledgerResult: (right: boolean) => (right ? 'Ledger 也答对了。' : 'Ledger 这次答错了。'),
     void: '没有拿到价格，这题不算。',
-    yesterday: '昨天',
     rightNames: '答对',
     missedNames: '答错',
     voted: (side: string) => `你选了 **${side}**。`,
@@ -153,7 +149,6 @@ const WORDS = {
     nobody: 'この質問には回答がありませんでした。',
     ledgerResult: (right: boolean) => (right ? 'Ledger も正解でした。' : 'Ledger は今回は外れでした。'),
     void: '価格が取れなかったので、この質問は無効です。',
-    yesterday: '昨日',
     rightNames: '正解',
     missedNames: '不正解',
     voted: (side: string) => `**${side}** にしました。`,
@@ -176,26 +171,25 @@ function movedLine(w: Words, rule: BarRule, start: number, end: number): string 
 const names = (votes: BarVote[]) => `${votes.slice(0, 25).map((v) => `<@${v.userId}>`).join(' ')}${votes.length > 25 ? ` +${votes.length - 25}` : ''}`;
 
 /**
- * Yesterday's result inside today's question, so the bar gets one message a day: what happened, who read it
- * right and who missed, by name, without pinging anyone.
+ * The result, posted once as its own short message (a reply to the question) when the 24 hours are up:
+ * what happened, who read it right and who missed, by name, without pinging anyone.
  */
-export function yesterdaySection(q: BarQuestion, votes: BarVote[]): (string | ReturnType<typeof divider> | null)[] {
+export function barResultContainer(q: BarQuestion, votes: BarVote[]) {
   const w = barWords(q.lang);
-  const head = `**${w.yesterday}:** ${questionText(q.rule, q.lang)}`;
-  if (q.status === 'void') return [divider(), head, kicker(w.void)];
+  const header = [kicker(`${w.label} · ${w.chartResult}`), heading(questionText(q.rule, q.lang))];
+  if (q.status === 'void') return card(ACCENT.muted, [...header, w.void]);
   const right = votes.filter((v) => v.value === q.outcome);
   const missed = votes.filter((v) => v.value !== q.outcome);
-  return [
-    divider(),
-    head,
+  return card(q.outcome === 1 ? ACCENT.right : ACCENT.wrong, [
+    ...header,
     `${w.result(q.outcome === 1)} ${movedLine(w, q.rule, q.startValue, q.endValue!)}`,
     right.length ? `✓ **${w.rightNames} (${right.length}):** ${names(right)}` : null,
     missed.length ? `✗ **${w.missedNames} (${missed.length}):** ${names(missed)}` : null,
     kicker(votes.length ? w.ledgerResult(q.ledger === q.outcome) : w.nobody),
-  ];
+  ]);
 }
 
-export function barQuestionContainer(q: BarQuestion, votes: BarVote[], opts: { chart?: boolean; yesterday?: { question: BarQuestion; votes: BarVote[] } } = {}) {
+export function barQuestionContainer(q: BarQuestion, votes: BarVote[], opts: { chart?: boolean } = {}) {
   const w = barWords(q.lang);
   const withCount = votes.filter((v) => v.value === 1).length;
   const share = `${Math.round(q.ledgerShare * 100)}%`;
@@ -205,7 +199,7 @@ export function barQuestionContainer(q: BarQuestion, votes: BarVote[], opts: { c
     month: 'short',
     timeZone: 'UTC',
   });
-  const header = [kicker(`🍺 ${w.label} · ${date}`), heading(questionText(q.rule, q.lang)), opts.chart && picture(CHART_NAME, questionText(q.rule, q.lang))];
+  const header = [kicker(`${w.label} · ${date}`), heading(questionText(q.rule, q.lang)), opts.chart && picture(BAR_IMAGE, questionText(q.rule, q.lang))];
 
   if (q.status === 'open') {
     return card(ACCENT.amber, [
@@ -217,10 +211,9 @@ export function barQuestionContainer(q: BarQuestion, votes: BarVote[], opts: { c
           .join(' · '),
       ),
       row(
-        new ButtonBuilder().setCustomId(barButtonId('with', q.id)).setLabel(w.with).setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId(barButtonId('against', q.id)).setLabel(w.against).setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(barButtonId('with', q.id)).setLabel(w.with).setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId(barButtonId('against', q.id)).setLabel(w.against).setStyle(ButtonStyle.Danger),
       ),
-      ...(opts.yesterday ? yesterdaySection(opts.yesterday.question, opts.yesterday.votes) : []),
     ]);
   }
   if (q.status === 'closed') {
@@ -236,9 +229,7 @@ export function barQuestionContainer(q: BarQuestion, votes: BarVote[], opts: { c
   return card(q.outcome === 1 ? ACCENT.right : ACCENT.wrong, [
     ...header,
     `${w.result(q.outcome === 1)} ${movedLine(w, q.rule, q.startValue, q.endValue!)}`,
-    votes.length
-      ? `${w.readRight(right.length, votes.length)}${right.length ? `: ${right.slice(0, 15).map((v) => `<@${v.userId}>`).join(' ')}${right.length > 15 ? ' …' : ''}` : '.'}`
-      : w.nobody,
+    votes.length ? `${w.readRight(right.length, votes.length)}.` : w.nobody,
     kicker(`${w.closed(withCount, votes.length - withCount).replace(/\*\*/g, '')} ${w.ledgerResult(q.ledger === q.outcome)}`),
   ]);
 }

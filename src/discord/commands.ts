@@ -247,7 +247,7 @@ async function barCommand(interaction: ChatInputCommandInteraction<'cached'>, de
     bar.bar.setChannel(interaction.guildId, channelId, lang, Date.now());
     await interaction.reply({
       flags: MessageFlags.Ephemeral,
-      content: `The bar question posts here every day at 13:00 UTC, in ${{ en: 'English', pt: 'Portuguese', es: 'Spanish', zh: 'Chinese', ja: 'Japanese' }[lang]}. Answers stay open for 8 hours, and each day's post shows yesterday's result: who read it right and who missed. Use \`/ledger-bar now\` to post today's right away.`,
+      content: `The bar question posts here every day at 13:00 UTC, in ${{ en: 'English', pt: 'Portuguese', es: 'Spanish', zh: 'Chinese', ja: 'Japanese' }[lang]}. Answers stay open for 8 hours. 24 hours after it posts, the result goes up as a reply: who read it right and who missed. Use \`/ledger-bar now\` to post today's right away.`,
     });
     return;
   }

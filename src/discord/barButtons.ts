@@ -2,12 +2,12 @@ import { type ButtonInteraction, type Client, MessageFlags } from 'discord.js';
 import { chartTitle, specOf } from '../bar/questions.js';
 import type { BarEvent, BarRunner } from '../bar/runner.js';
 import type { BarQuestion, BarStore } from '../bar/store.js';
-import { CHART_NAME, type Charts } from '../charts/maker.js';
+import { BAR_IMAGE, type Charts } from '../charts/maker.js';
 import { discordTime } from '../format.js';
 import { log } from '../log.js';
 import type { Members } from '../members.js';
 import type { Metrics } from '../metrics.js';
-import { barQuestionContainer, barWords, parseBarButtonId } from './barCards.js';
+import { barQuestionContainer, barResultContainer, barWords, parseBarButtonId } from './barCards.js';
 import { cards, rebuilding } from './ui.js';
 
 export interface BarDeps {
@@ -27,10 +27,8 @@ export async function postBarQuestion(client: Client, deps: BarDeps, q: BarQuest
   }
   const w = barWords(q.lang);
   const chart = await deps.charts?.barQuestion(specOf(q.rule), chartTitle(q.rule, q.lang), w.chartResult, q.lang).catch(() => null);
-  const prev = deps.bar.lastSettled(q.channelId, q.day);
-  const yesterday = prev && prev.day >= new Date(q.opensAt - 2 * 86_400_000).toISOString().slice(0, 10) ? { question: prev, votes: deps.bar.votes(prev.id) } : undefined;
   const sent = await channel
-    .send({ ...cards([barQuestionContainer(q, [], { chart: !!chart, yesterday })]), files: chart ? [{ attachment: chart.data, name: chart.name }] : [] })
+    .send({ ...cards([barQuestionContainer(q, [], { chart: !!chart })]), files: chart ? [{ attachment: chart.data, name: chart.name }] : [] })
     .catch((err: unknown) => (log.warn('Bar question post failed', err), null));
   if (sent) deps.bar.attachMessage(q.id, sent.id);
   return sent?.url ?? null;
@@ -44,8 +42,18 @@ async function refresh(client: Client, deps: BarDeps, q: BarQuestion): Promise<v
   if (!message) return;
   const votes = deps.bar.votes(q.id);
   await message
-    .edit(rebuilding(message, CHART_NAME, (chart) => cards([barQuestionContainer(q, votes, { chart })])))
+    .edit(rebuilding(message, BAR_IMAGE, (chart) => cards([barQuestionContainer(q, votes, { chart })])))
     .catch((err: unknown) => log.warn('Bar question edit failed', err));
+}
+
+/** The result as its own message, a reply to the question, naming who read it right and who missed. Pings nobody. */
+async function postResult(client: Client, deps: BarDeps, q: BarQuestion): Promise<void> {
+  const channel = await client.channels.fetch(q.channelId).catch(() => null);
+  if (!channel?.isSendable()) return;
+  const payload = cards([barResultContainer(q, deps.bar.votes(q.id))]);
+  await channel
+    .send(q.messageId ? { ...payload, reply: { messageReference: q.messageId, failIfNotExists: false } } : payload)
+    .catch((err: unknown) => log.warn('Bar result post failed', err));
 }
 
 /** Runs the bar question's clock and posts or updates what changed. */
@@ -54,6 +62,7 @@ export async function runBar(client: Client, deps: BarDeps): Promise<void> {
   for (const ev of events) {
     if (ev.kind === 'opened') await postBarQuestion(client, deps, ev.question);
     else await refresh(client, deps, ev.question);
+    if (ev.kind === 'settled') await postResult(client, deps, ev.question);
   }
 }
 

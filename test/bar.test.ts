@@ -3,7 +3,7 @@ import { POOL, outcomeOf, questionText, roundLevel, ruleFor } from '../src/bar/q
 import { BarRunner } from '../src/bar/runner.js';
 import { BarStore } from '../src/bar/store.js';
 import { openDb } from '../src/db/index.js';
-import { barQuestionContainer, parseBarButtonId } from '../src/discord/barCards.js';
+import { barQuestionContainer, barResultContainer, parseBarButtonId } from '../src/discord/barCards.js';
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
@@ -82,13 +82,13 @@ describe('the bar question', () => {
     const done = store.get(q.id)!;
     const settled = JSON.stringify(barQuestionContainer(done, store.votes(q.id)).toJSON());
     expect(settled).toContain('Result: yes.');
-    expect(settled).toContain('1 of 2 read it right: <@111>');
+    expect(settled).toContain('1 of 2 read it right.');
     expect(settled).not.toContain('bar:with:');
-    // The next day's post carries the result: who read it right and who missed, named but not pinged.
-    const next = JSON.stringify(barQuestionContainer({ ...q, id: 99, day: '2026-11-09' }, [], { yesterday: { question: done, votes: store.votes(q.id) } }).toJSON());
-    expect(next).toContain('**Yesterday:**');
-    expect(next).toContain('✓ **Read it right (1):** <@111>');
-    expect(next).toContain('✗ **Missed (1):** <@222>');
+    // The result goes out as its own message: who read it right and who missed, named but not pinged.
+    const result = JSON.stringify(barResultContainer(done, store.votes(q.id)).toJSON());
+    expect(result).toContain('Result: yes.');
+    expect(result).toContain('✓ **Read it right (1):** <@111>');
+    expect(result).toContain('✗ **Missed (1):** <@222>');
     expect(parseBarButtonId('bar:against:7')).toEqual({ action: 'against', id: 7 });
   });
 });

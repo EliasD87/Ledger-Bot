@@ -15,3 +15,17 @@ export function toPng(svg: string): Buffer {
   });
   return resvg.render().asPng();
 }
+
+/** An SVG drawn to exactly `width` × `height` as RGBA pixels (premultiplied by alpha), for compositing. */
+export function toRgba(svg: string, width: number, height: number): Uint8ClampedArray {
+  const resvg = new Resvg(svg, {
+    fitTo: { mode: 'width', value: width },
+    font: { fontFiles: hasHan(svg) ? [...FONTS, ...CHINESE] : FONTS, loadSystemFonts: false, defaultFontFamily: 'IBM Plex Sans' },
+  });
+  const image = resvg.render();
+  const px = new Uint8ClampedArray(width * height * 4);
+  // A chart taller than the scene (a key under it) is cut at the scene's edge.
+  const rows = Math.min(height, image.height);
+  px.set(image.pixels.subarray(0, rows * image.width * 4).subarray(0, rows * width * 4));
+  return px;
+}

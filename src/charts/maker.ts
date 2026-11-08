@@ -25,6 +25,7 @@ import {
   windowLabel,
 } from './charts.js';
 import { type Point, type RankChart, rankChart } from './draw.js';
+import { toBarGif } from './barGif.js';
 import { toPng } from './render.js';
 
 /** A chart ready to attach: the file name the card points at, and the PNG. */
@@ -34,6 +35,8 @@ export interface ChartFile {
 }
 
 export const CHART_NAME = 'chart.png';
+/** The bar question's picture: an animated GIF. */
+export const BAR_IMAGE = 'bar.gif';
 
 const DAY = 86_400_000;
 /** Macro releases worth marking on a take's runway, with their short names. */
@@ -54,7 +57,7 @@ export class Charts {
       history: MarketHistory;
       desk: Desk | null;
       /** Draws outside the bot's process (pool.ts); without it, drawing happens in-process. */
-      renderer?: { render(svg: string): Promise<Buffer> };
+      renderer?: { render(svg: string, opts?: { gif?: boolean }): Promise<Buffer> };
       now?: () => number;
     },
   ) {}
@@ -74,12 +77,22 @@ export class Charts {
     return this.draw('thesis', () => thesisChart(spec, histories, extras));
   }
 
-  /** The daily bar question: the last week hourly, the price now and the usual one-day range ahead. */
+  /**
+   * The daily bar question: the last week hourly, the price now and the usual one-day range ahead, in neon
+   * over the animated bar scene (a GIF).
+   */
   async barQuestion(spec: ThesisSpec, title: string, checkLabel: string, lang: Lang = 'en'): Promise<ChartFile | null> {
     const histories = await this.specHistories(spec);
     if (!histories || measuredSeries(spec, histories).length < 2) return null;
     const extras = await this.extras(histories, 7, spec.kind === 'relative');
-    return this.draw('bar question', () => thesisChart(spec, histories, { ...extras, lang, title, checkLabel, question: true }));
+    try {
+      const svg = thesisChart(spec, histories, { ...extras, lang, title, checkLabel, question: true });
+      const data = this.deps.renderer ? await this.deps.renderer.render(svg, { gif: true }) : toBarGif(svg);
+      return { name: BAR_IMAGE, data };
+    } catch (err) {
+      log.warn("Couldn't draw the bar question", err);
+      return null;
+    }
   }
 
   /** One asset with its averages, or two rebased to 100. */
