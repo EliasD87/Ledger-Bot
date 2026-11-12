@@ -35,6 +35,7 @@ import { topicTerms } from '../src/memory/archive.js';
 import { Activity, buildMyPage } from '../src/pages/myPage.js';
 import { Charts } from '../src/charts/maker.js';
 import { Members } from '../src/members.js';
+import { LANG_NAMES, channelLang, langOfThread } from '../src/lang.js';
 import { PERSONA, PERSONA_EXAMPLES, contextLine } from '../src/persona.js';
 import { CryptoQuotes, StockQuotes } from '../src/quotes.js';
 import { SoSoValue } from '../src/sosovalue.js';
@@ -165,12 +166,17 @@ for (const s of scenarios) {
     members.remember(userId(turn.from), turn.from);
     thread.push({ authorName: turn.from, fromSelf: false, content: turn.text });
     const chain = thread.slice(-config.threadMaxMessages);
+    // The conversation's language, read the way the bot reads it (members' messages, then the channel's own).
+    const lang = langOfThread(chain.filter((m) => !m.fromSelf).map((m) => m.content), channelLang(s.channel ?? 'general'));
     const prompt = [
       { role: 'system' as const, content: PERSONA },
       { role: 'system' as const, content: contextLine({ server: 'CybeReator', channel: s.channel ?? 'general', now: new Date() }) },
+      ...(lang !== 'en'
+        ? [{ role: 'system' as const, content: `This conversation is in ${LANG_NAMES[lang]}: reply in ${LANG_NAMES[lang]} unless the member's latest message is clearly in another language.` }]
+        : []),
       ...toChatMessages(chain),
     ];
-    const session = tools.session({ guildId: GUILD, channelId: 'eval', userId: userId(turn.from), name: turn.from });
+    const session = tools.session({ guildId: GUILD, channelId: 'eval', userId: userId(turn.from), name: turn.from, lang });
     const spentBefore = spend.since(0);
     const traces: ToolTrace[] = [];
     let cost = 0;

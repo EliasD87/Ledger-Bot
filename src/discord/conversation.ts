@@ -1,4 +1,4 @@
-import { LANG_NAMES, type Lang, langOf, langOfThread } from '../lang.js';
+import { LANG_NAMES, type Lang, channelLang, langOf, langOfThread } from '../lang.js';
 import { ComponentType, type Message, MessageReferenceType } from 'discord.js';
 import type { Config } from '../config.js';
 import { type ChatMessage, type ChatModel, type Usage, busy } from '../llm/deepseek.js';
@@ -137,7 +137,8 @@ export class Conversation {
     const chain = await collectChain(message, parentOf, config.threadMaxMessages);
     const rootId = this.rootOf(chain, selfId);
     // Cards, charts and fixed lines follow the conversation's language: "ok" after Portuguese stays Portuguese.
-    const lang = langOfThread(chain.filter((m) => m.author.id !== selfId).map((m) => m.content));
+    // A message that can't be told ("ok", "gm") takes the channel's own language.
+    const lang = langOfThread(chain.filter((m) => m.author.id !== selfId).map((m) => m.content), channelLang(channelName(message)));
     const prompt: ChatMessage[] = [
       { role: 'system', content: PERSONA },
       {

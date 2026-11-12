@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { thesisChart } from '../src/charts/charts.js';
 import { toPng } from '../src/charts/render.js';
 import { caseContainer, thesisCard } from '../src/discord/thesisCards.js';
-import { detectLang, langOf, langOfThread } from '../src/lang.js';
+import { channelLang, detectLang, langOf, langOfThread } from '../src/lang.js';
 import { holdLine } from '../src/discord/conversation.js';
 import { claimText } from '../src/theses/spec.js';
 import type { Thesis } from '../src/theses/store.js';
@@ -100,5 +100,36 @@ describe('Japanese, Portuguese and Spanish', () => {
     expect(svg).toContain('目標 100,000');
     expect(toPng(svg).subarray(1, 4).toString()).toBe('PNG');
     expect(thesisChart(spec, [btc], { lang: 'pt' })).toContain('alvo 100,000');
+  });
+});
+
+describe('English that borrows a word', () => {
+  it("doesn't take an English message for Spanish or Portuguese over one stray word", () => {
+    expect(detectLang('Yo! <@1> <@2> new member 7xz coming')).toBe('en');
+    expect(detectLang('yo what do you think about btc')).toBe('en');
+    expect(detectLang('do it, pro move')).not.toBe('pt');
+    expect(detectLang('um, is the EU banning this?')).toBe('en');
+    // One Spanish or Portuguese word in a longer line isn't enough on its own.
+    expect(detectLang('gm frens la vibes today')).not.toBe('es');
+    expect(detectLang('BTC ETH SOL bem')).toBeNull();
+  });
+
+  it('still knows real Portuguese and Spanish, short or long', () => {
+    expect(detectLang('obrigado')).toBe('pt');
+    expect(detectLang('gracias')).toBe('es');
+    expect(detectLang('o BTC vai subir essa semana?')).toBe('pt');
+    expect(detectLang('hola! qué tal?')).toBe('es');
+    expect(detectLang('Muito obrigado, esta tudo perfeito')).toBe('pt');
+  });
+
+  it("falls back to the channel's own language when a message can't be told", () => {
+    expect(channelLang('general-chat-portuguese')).toBe('pt');
+    expect(channelLang('cybereators-中文')).toBe('zh');
+    expect(channelLang('general-chat-日本語')).toBe('ja');
+    expect(channelLang('general-chat')).toBe('en');
+    expect(langOfThread(['ok'], channelLang('general-chat-portuguese'))).toBe('pt');
+    expect(langOfThread(['gm'], channelLang('general-chat'))).toBe('en');
+    // A clear message still wins over the channel.
+    expect(langOfThread(['what is the btc price today?'], 'pt')).toBe('en');
   });
 });

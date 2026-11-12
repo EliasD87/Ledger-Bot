@@ -18,22 +18,25 @@ const HAN = /[㐀-䶿一-鿿豈-﫿]/g;
 const KANA = /[぀-ヿㇰ-ㇿｦ-ﾟ]/g;
 
 // Words common in one of the Latin-script languages and rare in the others. Shared words (que, como, para,
-// mas, no, a, o) are left out on purpose: they can't tell Portuguese from Spanish.
+// mas, no, a, o) are left out on purpose: they can't tell Portuguese from Spanish. So are Portuguese and
+// Spanish words that English chat uses too ("yo", "do", "um", "pro", "eu"): "Yo! new member coming" is English.
 const MARKERS: { [L in 'en' | 'pt' | 'es']: Set<string> } = {
   en: new Set(
     `the is are was were you your what how why when where who which will would should could can does did don't i my of to in
     it's i'm this that these those there they them their with from about think going today tomorrow price buy sell
-    and but not have has had just like know good bad thanks thank hello hey english please much more than also`.split(/\s+/),
+    and but not have has had just like know good bad thanks thank hello hey english please much more than also
+    it if we he she be an or so by up out on at new member members coming welcome hi guys yeah yes here now get
+    got go see want need make one all some any day man lets let's its been him her our us joined join everyone`.split(/\s+/),
   ),
   pt: new Set(
     `não nao você voce vocês voces obrigado obrigada muito muita tudo isso isto consegue falar português portugues
-    sim olá ola bom boa um uma uns umas com do da dos das ao aos na nas pra pro também tambem então entao agora
-    hoje ontem amanhã amanha preço preco acho eu ele ela nós meu minha seu sua fazer pode vai tem estão
+    sim olá ola bom boa uma uns umas com da dos das ao aos na nas pra também tambem então entao agora
+    hoje ontem amanhã amanha preço preco acho ele ela nós meu minha seu sua fazer pode vai tem estão essa esse
     ou é e quanto quanta qual quais aqui ainda já ja onde porquê bem obrigadão valeu beleza cara tá ta vou`.split(/\s+/),
   ),
   es: new Set(
     `sí hola gracias muy bien el los las la del al un una con pero y es son estoy estás tengo tienes hay hoy
-    ayer mañana precio ahora entonces también porque cuándo cuál cuáles mejor bueno buena yo tú usted ustedes
+    ayer mañana precio ahora entonces también porque cuándo cuál cuáles cual mejor bueno buena tú usted ustedes
     nosotros eso esto puedes hablar hablas español espanol qué cómo dónde creo vamos voy va van están pues
     todavía aquí muchas mucho`.split(/\s+/),
   ),
@@ -60,12 +63,26 @@ export function detectLang(raw: string): Lang | null {
   // Letters only one of them uses.
   if (/[ãõç]/.test(lower)) score.pt += 2;
   if (/[ñ¿¡]/.test(lower)) score.es += 2;
-  for (const word of lower.match(/[a-zà-ÿ']+/g) ?? []) {
+  const words = lower.match(/[a-zà-ÿ']+/g) ?? [];
+  for (const word of words) {
     for (const lang of ['en', 'pt', 'es'] as const) if (MARKERS[lang].has(word)) score[lang]++;
   }
   const ranked = (Object.entries(score) as ['en' | 'pt' | 'es', number][]).sort((a, b) => b[1] - a[1]);
   const [best, second] = ranked;
-  return best![1] > 0 && best![1] > second![1] ? best![0] : null;
+  if (best![1] === 0 || best![1] === second![1]) return null;
+  // In a sentence, one stray word isn't enough to call it Portuguese or Spanish; a word or two alone ("obrigado") is.
+  if (best![0] !== 'en' && best![1] < 2 && words.length >= 3) return null;
+  return best![0];
+}
+
+/** A channel's own language from its name ("general-chat-portuguese", "cybereators-中文"); English otherwise. */
+export function channelLang(name: string): Lang {
+  const n = name.toLowerCase();
+  if (/portugu|brasil|brazil|-pt\b/.test(n)) return 'pt';
+  if (/espa[nñ]ol|spanish|-es\b/.test(n)) return 'es';
+  if (/中文|chinese|-zh\b|-cn\b/.test(n)) return 'zh';
+  if (/日本語|japan|-ja\b|-jp\b/.test(n)) return 'ja';
+  return 'en';
 }
 
 /** The language of one message, English when it can't be told. */
@@ -75,14 +92,15 @@ export function langOf(text: string): Lang {
 
 /**
  * The language of a conversation, from the members' messages (oldest first): the latest one that can be
- * told, so "ok" or "BTC?" after Portuguese stays Portuguese, while "in English please" switches.
+ * told, so "ok" or "BTC?" after Portuguese stays Portuguese, while "in English please" switches. When none
+ * can be told, `fallback`: the channel's own language.
  */
-export function langOfThread(texts: string[]): Lang {
+export function langOfThread(texts: string[], fallback: Lang = 'en'): Lang {
   for (let i = texts.length - 1; i >= 0; i--) {
     const lang = detectLang(texts[i]!);
     if (lang) return lang;
   }
-  return 'en';
+  return fallback;
 }
 
 /** Whether a string has any Chinese or Japanese characters (for picking fonts). */

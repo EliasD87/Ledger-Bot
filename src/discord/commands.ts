@@ -20,7 +20,7 @@ import type { Members } from '../members.js';
 import { RETENTION_DAYS } from '../memory/archive.js';
 import { summarize } from '../memory/summarize.js';
 import { COMMAND_PILLAR, type Metrics } from '../metrics.js';
-import type { Lang } from '../lang.js';
+import { type Lang, channelLang } from '../lang.js';
 import type { Activity } from '../pages/myPage.js';
 import type { Measure } from '../theses/measure.js';
 import { type TakeDeps, draftTake } from '../theses/service.js';
@@ -227,16 +227,6 @@ export async function handleInteraction(interaction: Interaction, deps: CommandD
   }
 }
 
-/** A channel's language from its name: "general-chat-portuguese", "cybereators-中文". */
-function langOfChannel(name: string): Lang {
-  const n = name.toLowerCase();
-  if (/portugu|brasil|brazil|-pt\b/.test(n)) return 'pt';
-  if (/espa[nñ]ol|spanish|-es\b/.test(n)) return 'es';
-  if (/中文|chinese|-zh\b|-cn\b/.test(n)) return 'zh';
-  if (/日本語|japan|-ja\b|-jp\b/.test(n)) return 'ja';
-  return 'en';
-}
-
 /** /ledger-bar: the daily bar question in this channel. */
 async function barCommand(interaction: ChatInputCommandInteraction<'cached'>, deps: CommandDeps): Promise<void> {
   const bar = deps.bar;
@@ -268,7 +258,7 @@ async function barCommand(interaction: ChatInputCommandInteraction<'cached'>, de
     return;
   }
   if (sub === 'on') {
-    const lang = (interaction.options.getString('language') as Lang | null) ?? langOfChannel(named);
+    const lang = (interaction.options.getString('language') as Lang | null) ?? channelLang(named);
     bar.bar.setChannel(interaction.guildId, channelId, lang, Date.now());
     await interaction.reply({
       flags: MessageFlags.Ephemeral,
@@ -290,7 +280,7 @@ async function barCommand(interaction: ChatInputCommandInteraction<'cached'>, de
     await interaction.editReply(lines.length ? lines.join('\n') : 'No channels get the bar question yet.');
     return;
   }
-  const opened = await bar.runner.open(interaction.guildId, channelId, configured?.lang ?? langOfChannel(named), true);
+  const opened = await bar.runner.open(interaction.guildId, channelId, configured?.lang ?? channelLang(named), true);
   if ('error' in opened) {
     await interaction.editReply(opened.error);
     return;
