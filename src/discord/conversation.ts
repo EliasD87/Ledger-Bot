@@ -145,7 +145,7 @@ export class Conversation {
       return;
     }
 
-    const { config, limiter, spend, metrics, members, theses } = this.deps;
+    const { config, limiter, spend, metrics, members } = this.deps;
     const base = { guildId: message.guildId, channelId: message.channelId, userId: message.author.id };
     const name = message.member?.displayName ?? message.author.displayName;
     members.remember(message.author.id, name);
@@ -168,6 +168,20 @@ export class Conversation {
     }
 
     await message.channel.sendTyping().catch(() => {});
+    // Nothing after the typing dots may fail silently: any error ends in a line the member can see.
+    try {
+      await this.answer(message, { base, name, own, selfId });
+    } catch (err) {
+      log.error('Reply failed', err);
+      await message.reply(LINES[own].llmError).catch((e: unknown) => log.error('Even the error line failed to post', e));
+    }
+  }
+
+  private async answer(
+    message: Message<true>,
+    { base, name, selfId }: { base: { guildId: string; channelId: string; userId: string }; name: string; own: Lang; selfId: string },
+  ): Promise<void> {
+    const { config, spend, metrics, theses } = this.deps;
     const chain = await collectChain(message, parentOf, config.threadMaxMessages);
     const rootId = this.rootOf(chain, selfId);
     // Cards, charts and fixed lines follow the conversation's language: "ok" after Portuguese stays Portuguese.
@@ -245,7 +259,13 @@ export class Conversation {
           .catch((err: unknown) => (log.warn('Editing the hold line failed', err), null))
       : null;
     if (placeholder && !edited) await placeholder.delete().catch(() => {});
-    const sent = edited ?? (await message.reply(payload));
+    // If Discord turns the full reply down (a card or a chart it won't take here), the words still go out.
+    const sent =
+      edited ??
+      (await message.reply(payload).catch(async (err: unknown) => {
+        log.warn('Posting the reply failed; sending the text alone', err);
+        return message.reply({ content: text });
+      }));
     if (draft) theses.attachMessage(draft.id, message.channelId, sent.id);
     this.deps.replies.remember(sent.id, rootId, message.channelId);
     metrics.record({
