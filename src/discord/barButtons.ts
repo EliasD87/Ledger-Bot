@@ -1,4 +1,4 @@
-import { type ButtonInteraction, type Client, MessageFlags } from 'discord.js';
+import { type ButtonInteraction, type Client, MessageFlags, PermissionFlagsBits } from 'discord.js';
 import { chartTitle, specOf } from '../bar/questions.js';
 import type { BarEvent, BarRunner } from '../bar/runner.js';
 import type { BarQuestion, BarStore } from '../bar/store.js';
@@ -27,7 +27,10 @@ export async function postBarQuestion(client: Client, deps: BarDeps, q: BarQuest
     return null;
   }
   const w = barWords(q.lang);
-  const chart = await deps.charts?.barQuestion(specOf(q.rule), chartTitle(q.rule, q.lang), w.chartResult, q.lang).catch(() => null);
+  // A channel that blocks attachments gets the question without its picture rather than not at all.
+  const me = 'guild' in channel && channel.guild ? channel.guild.members.me : null;
+  const attach = me && 'permissionsFor' in channel ? channel.permissionsFor(me).has(PermissionFlagsBits.AttachFiles) : true;
+  const chart = attach ? await deps.charts?.barQuestion(specOf(q.rule), chartTitle(q.rule, q.lang), w.chartResult, q.lang).catch(() => null) : null;
   // Big scheduled releases today (CPI, FOMC, jobs): named on the card and marked on the chart.
   const events = ((await deps.charts?.runwayEvents(q.opensAt, q.opensAt).catch(() => [])) ?? []).map((e) => e.label.split(' ')[0]!);
   const sent = await channel

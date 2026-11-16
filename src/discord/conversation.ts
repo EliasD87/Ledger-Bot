@@ -261,7 +261,8 @@ export class Conversation {
     // A take stress-tested during this reply rides along as its card (with Log it), under the text.
     // Charts ride along as files: inside the card for a stress test, under the text for an analysis.
     const { draft } = session;
-    const files = session.charts.map((c) => ({ attachment: c.data, name: c.name }));
+    // A channel that blocks attachments (some do, against spam) gets the reply without its chart.
+    const files = canAttach(message) ? session.charts.map((c) => ({ attachment: c.data, name: c.name })) : [];
     const cardPayload = draft
       ? { ...cards([say(cardCaption(draft.spec.nft ? floorTakeLine(draft) : text)), thesisContainer(draft, { with: [], against: [] }, { chart: files.length > 0 })], { replyPing: true }), files }
       : null;
@@ -329,6 +330,13 @@ function isAddressedToSelf(message: Message<true>, selfId: string, parent: Messa
     const role = message.guild.roles.cache.get(id);
     return role !== undefined && (role.tags?.botId === selfId || role.name.toLowerCase() === selfName);
   });
+}
+
+/** Whether Ledger may attach files (charts) in the message's channel. */
+export function canAttach(message: Message<true>): boolean {
+  const me = message.guild.members.me;
+  const perms = me && 'permissionsFor' in message.channel ? message.channel.permissionsFor(me) : null;
+  return perms?.has(PermissionFlagsBits.AttachFiles) ?? true;
 }
 
 /** A message with nothing in it at all, which only happens when Discord withholds its content. */
