@@ -118,6 +118,7 @@ const conversation = new Conversation({
   spend,
   metrics,
   replies: new ReplyIndex(db),
+  started: alerts,
 });
 // The daily bar question: one relatable question a day in the channels an admin turned it on in.
 const barStore = new BarStore(db);

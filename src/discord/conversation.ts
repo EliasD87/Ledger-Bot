@@ -90,7 +90,12 @@ export interface ConversationDeps {
   spend: Spend;
   metrics: Metrics;
   replies: ReplyIndex;
+  /** Remembers which messages Ledger started answering, across restarts. */
+  started?: { seen(key: string): boolean; markSeen(key: string, now: number): boolean };
 }
+
+/** The longest a reply may take before the member gets the error line instead of endless typing. */
+const ANSWER_DEADLINE_MS = 120_000;
 
 /**
  * Ledger's chat: a mention starts a conversation, and replying to any of Ledger's messages
@@ -119,8 +124,9 @@ export class Conversation {
         const recent = await channel.messages.fetch({ limit: 30 }).catch(() => null);
         if (!recent) continue;
         const replied = new Set(recent.filter((m) => m.author.id === selfId && m.reference?.messageId).map((m) => m.reference!.messageId!));
+        // Only messages Ledger never started on: one it began and then went down on may be what brought it down.
         const missed = [...recent.values()]
-          .filter((m) => m.createdTimestamp >= since && !m.author.bot && !replied.has(m.id))
+          .filter((m) => m.createdTimestamp >= since && !m.author.bot && !replied.has(m.id) && !this.deps.started?.seen(`started:${m.id}`))
           .filter((m) => m.mentions.users.has(selfId) || roleMentionIds(m.content).some((id) => guild.roles.cache.get(id)?.tags?.botId === selfId))
           .sort((a, b) => a.createdTimestamp - b.createdTimestamp);
         for (const m of missed) {
@@ -168,12 +174,20 @@ export class Conversation {
     }
 
     await message.channel.sendTyping().catch(() => {});
-    // Nothing after the typing dots may fail silently: any error ends in a line the member can see.
+    this.deps.started?.markSeen(`started:${message.id}`, Date.now());
+    // Nothing after the typing dots may fail silently or hang: any error, or a reply that takes too long, ends in
+    // a line the member can see.
+    let timer: NodeJS.Timeout | undefined;
+    const deadline = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`No reply after ${ANSWER_DEADLINE_MS / 1000}s`)), ANSWER_DEADLINE_MS);
+    });
     try {
-      await this.answer(message, { base, name, own, selfId });
+      await Promise.race([this.answer(message, { base, name, own, selfId }), deadline]);
     } catch (err) {
       log.error('Reply failed', err);
       await message.reply(LINES[own].llmError).catch((e: unknown) => log.error('Even the error line failed to post', e));
+    } finally {
+      clearTimeout(timer);
     }
   }
 
