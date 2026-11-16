@@ -152,6 +152,8 @@ async function start(readContent: boolean): Promise<void> {
     void refreshTape();
     void analystSync?.tick();
     void nfts.tick();
+    // Mentions that came in while Ledger was restarting (an update) get their answer now.
+    void conversation.catchUp(c).catch((err) => log.warn('Catch-up failed', err));
     await Promise.all(c.guilds.cache.map((guild) => registerCommands(guild)));
   });
   client.on(Events.GuildCreate, (guild) => void registerCommands(guild));

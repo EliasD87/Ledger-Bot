@@ -1,5 +1,5 @@
 import { LANG_NAMES, type Lang, channelLang, langOf, langOfThread } from '../lang.js';
-import { ComponentType, type Message, MessageReferenceType } from 'discord.js';
+import { ChannelType, type Client, ComponentType, type Message, MessageReferenceType, PermissionFlagsBits } from 'discord.js';
 import type { Config } from '../config.js';
 import { type ChatMessage, type ChatModel, type Usage, busy } from '../llm/deepseek.js';
 import { type RateLimiter, type Spend, overBudget } from '../llm/guards.js';
@@ -98,6 +98,40 @@ export interface ConversationDeps {
  */
 export class Conversation {
   constructor(private readonly deps: ConversationDeps) {}
+
+  /**
+   * After a restart: Discord doesn't resend messages that arrived while Ledger was offline, so look back a
+   * few minutes in every channel it can read and answer the ones addressed to it that got no reply yet.
+   */
+  async catchUp(client: Client, lookbackMs = 15 * 60_000): Promise<void> {
+    const since = Date.now() - lookbackMs;
+    const selfId = client.user!.id;
+    let answered = 0;
+    for (const guild of client.guilds.cache.values()) {
+      const me = guild.members.me;
+      for (const channel of guild.channels.cache.values()) {
+        if (channel.type !== ChannelType.GuildText && channel.type !== ChannelType.GuildAnnouncement) continue;
+        const perms = me ? channel.permissionsFor(me) : null;
+        if (!perms?.has([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.SendMessages])) continue;
+        // Nothing new since before the window: skip the fetch.
+        const lastAt = channel.lastMessageId ? Number((BigInt(channel.lastMessageId) >> 22n) + 1420070400000n) : 0;
+        if (lastAt < since) continue;
+        const recent = await channel.messages.fetch({ limit: 30 }).catch(() => null);
+        if (!recent) continue;
+        const replied = new Set(recent.filter((m) => m.author.id === selfId && m.reference?.messageId).map((m) => m.reference!.messageId!));
+        const missed = [...recent.values()]
+          .filter((m) => m.createdTimestamp >= since && !m.author.bot && !replied.has(m.id))
+          .filter((m) => m.mentions.users.has(selfId) || roleMentionIds(m.content).some((id) => guild.roles.cache.get(id)?.tags?.botId === selfId))
+          .sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+        for (const m of missed) {
+          log.info(`Answering a message missed while offline in #${channel.name}`);
+          await this.handle(m).catch((err: unknown) => log.error('Catch-up reply failed', err));
+          answered++;
+        }
+      }
+    }
+    if (answered) log.info(`Caught up on ${answered} missed message(s)`);
+  }
 
   async handle(message: Message): Promise<void> {
     if (message.author.bot || message.system || !message.inGuild()) return;
